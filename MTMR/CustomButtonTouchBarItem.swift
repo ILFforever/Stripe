@@ -236,11 +236,11 @@ class CustomButtonTouchBarItem: NSCustomTouchBarItem, NSGestureRecognizerDelegat
         let image = button.image
         let cell = CustomButtonCell(parentItem: self)
         button.cell = cell
-        (button as? CustomHeightButton)?.horizontalPadding = max(style.cornerRadius != nil ? 10 : 0, contentPadding)
-        button.wantsLayer = style.cornerRadius != nil
-        button.layer?.cornerRadius = style.cornerRadius ?? 0
+        (button as? CustomHeightButton)?.horizontalPadding = max(drawnRadius != nil ? 10 : 0, contentPadding)
+        button.wantsLayer = drawnRadius != nil
+        button.layer?.cornerRadius = drawnRadius ?? 0
         button.layer?.backgroundColor = nil
-        if let color = fillColor, let radius = style.cornerRadius {
+        if let color = fillColor, let radius = drawnRadius {
             // Custom-radius background: draw it on the layer, not with a bezel.
             button.isBordered = false
             button.bezelStyle = .inline
@@ -275,8 +275,11 @@ class CustomButtonTouchBarItem: NSCustomTouchBarItem, NSGestureRecognizerDelegat
     /// The background drawn behind the key. The system draws its gray key only
     /// at its own rounding, so with a shape set we draw that gray ourselves.
     private var fillColor: NSColor? {
-        backgroundColor ?? (isBordered && style.cornerRadius != nil ? CustomButtonTouchBarItem.standardKeyColor : nil)
+        backgroundColor ?? (isBordered && drawnRadius != nil ? CustomButtonTouchBarItem.standardKeyColor : nil)
     }
+
+    /// The rounding when we draw the key ourselves (the system's key has its own).
+    private var drawnRadius: CGFloat? { style.cornerRadius }
 
     /// Our stand-in for the gray key lightens while touched, as the system's does.
     private var drawnStandardPressed: NSColor? {
@@ -298,7 +301,7 @@ class CustomButtonTouchBarItem: NSCustomTouchBarItem, NSGestureRecognizerDelegat
         } else if color != nil || button.wantsLayer {
             button.wantsLayer = true
             button.layer?.backgroundColor = color?.cgColor
-            button.layer?.cornerRadius = style.cornerRadius ?? 6
+            button.layer?.cornerRadius = drawnRadius ?? 6
         }
     }
 
@@ -353,6 +356,13 @@ class CustomHeightButton: NSButton {
     /// See CustomButtonTouchBarItem.minimumTitleWidth.
     var minimumTitleWidth: CGFloat = 0 {
         didSet { invalidateIntrinsicContentSize() }
+    }
+
+    /// A key we draw ourselves fills exactly the bar's height. Left to NSButton,
+    /// an icon's alignment insets (SF Symbols like sun.max have them) stretch the
+    /// frame past the bar, cutting off the key's rounded corners.
+    override var alignmentRectInsets: NSEdgeInsets {
+        isBordered ? super.alignmentRectInsets : NSEdgeInsetsZero
     }
 
     /// Called after each layout, e.g. to keep an overlay aligned with the image.

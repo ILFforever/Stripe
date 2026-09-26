@@ -595,6 +595,9 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
                 item.collapsedRepresentationImage = symbolImage
             }
         }
+        if Theme.current.restyledKeys, let button = barItem as? CustomButtonTouchBarItem {
+            StripeKeys.apply(to: button, definition: item)
+        }
         if case let .image(source)? = item.additionalParameters[.image], let item = barItem as? NSPopoverTouchBarItem {
             item.collapsedRepresentationImage = source.image
         }

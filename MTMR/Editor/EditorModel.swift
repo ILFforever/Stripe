@@ -30,6 +30,20 @@ final class EditorItem: ObservableObject, Identifiable {
     var info: ItemTypeInfo { ItemCatalog.info(for: type) }
     var isContainer: Bool { children != nil }
 
+    /// Drawn Stripe's way (see StripeKeys) rather than MTMR's.
+    var usesStripeLook: Bool { fields["theme"]?.string != "mtmr" }
+
+    /// The corner rounding it has with nothing set: Stripe's text buttons are pills.
+    var defaultCornerRadius: Double {
+        usesStripeLook && StripeKeys.pillTypes.contains(type) ? Double(StripeKeys.pillRadius) : 6
+    }
+
+    /// The rounding it's drawn with.
+    var cornerRadius: Double {
+        if fields["style"]?.string == "pill" { return Double(ItemStyle.barHeight / 2) }
+        return fields["cornerRadius"]?.number ?? defaultCornerRadius
+    }
+
     var align: String {
         get { fields["align"]?.string ?? (type == "escape" ? "left" : "center") }
         set { self[string: "align"] = (newValue == "center" && type != "escape") ? nil : newValue }
@@ -414,7 +428,10 @@ struct ItemTypeInfo {
     let category: String
     let defaults: [String: JSONValue]
     let fields: [FieldSpec]
-    var isContainer: Bool { ["group", "popover", "cluster"].contains(type) }
+    /// A ready-made item the library adds whole (e.g. brightness down and up in
+    /// a group); its "type" is the item's real type.
+    var template: [String: JSONValue]? = nil
+    var isContainer: Bool { ["group", "popover", "cluster"].contains(template?["type"]?.string ?? type) }
     /// Drawn without a key unless the preset asks for one ("bordered": true).
     var borderlessByDefault: Bool {
         ["timeButton", "music", "dnd", "nightShift", "darkMode", "appleScriptTitledButton"].contains(type)
@@ -438,7 +455,13 @@ struct ItemTypeInfo {
         case "play": return "A static play/pause icon"
         case "mute": return "A static mute icon"
         case "volume", "brightness": return "A plain slider, without the panel and end icons"
-        case "shellScriptTitledButton", "appleScriptTitledButton", "cpu", "currency", "weather", "yandexWeather",
+        case "escape": return "Regular-weight “esc”"
+        case "delete": return "“del” as text"
+        case "brightnessDown", "brightnessUp", "illuminationDown", "illuminationUp":
+            return "MTMR's own icon, on a key of its own"
+        case "staticButton": return "A standard key with regular-weight text"
+        case "appleScriptTitledButton": return "A standard key with regular text; shows ⏳ until its first value"
+        case "shellScriptTitledButton", "cpu", "currency", "weather", "yandexWeather",
              "inputsource", "music", "network":
             return "Shows ⏳ until its first value, instead of fading in"
         default: return nil
@@ -469,7 +492,7 @@ enum ItemCatalog {
     static let all: [ItemTypeInfo] = [
         // Buttons
         ItemTypeInfo(type: "staticButton", name: "Button", symbol: "rectangle.fill", category: "Buttons",
-                     defaults: ["title": .string("Button"), "style": .string("pill"), "background": .string("#3A3A3C")],
+                     defaults: ["title": .string("Button")],
                      fields: [FieldSpec(path: "title", label: "Title", kind: .text(placeholder: "Button"))]),
         ItemTypeInfo(type: "shellScriptTitledButton", name: "Shell Script", symbol: "terminal", category: "Buttons",
                      defaults: ["source": .object(["inline": .string("date +%H:%M:%S")]), "refreshInterval": .number(5)],
@@ -485,10 +508,13 @@ enum ItemCatalog {
         // Keys
         simple("escape", "Escape", "escape", "Keys"),
         simple("delete", "Delete", "delete.left", "Keys"),
-        simple("brightnessUp", "Brightness Up", "sun.max", "Keys"),
+        // Each ready-made pair, then its keys on their own, down before up.
+        pair("brightness", "Brightness", "sun.max", down: "brightnessDown", up: "brightnessUp"),
         simple("brightnessDown", "Brightness Down", "sun.min", "Keys"),
-        simple("illuminationUp", "Keyboard Light Up", "light.max", "Keys"),
+        simple("brightnessUp", "Brightness Up", "sun.max", "Keys"),
+        pair("keyboardLight", "Keyboard Light", "light.max", down: "illuminationDown", up: "illuminationUp"),
         simple("illuminationDown", "Keyboard Light Down", "light.min", "Keys"),
+        simple("illuminationUp", "Keyboard Light Up", "light.max", "Keys"),
 
         // Media
         simple("previous", "Previous", "backward.fill", "Media"),
@@ -587,6 +613,16 @@ enum ItemCatalog {
         return ItemTypeInfo(type: type, name: name, symbol: symbol, category: category, defaults: defaults, fields: [])
     }
 
+    /// Library types that stand for a template rather than an item type.
+    static let templatePrefix = "template:"
+
+    /// A down and an up key side by side in one group, split by a divider.
+    private static func pair(_ id: String, _ name: String, _ symbol: String, down: String, up: String) -> ItemTypeInfo {
+        ItemTypeInfo(type: templatePrefix + id, name: name, symbol: symbol, category: "Keys", defaults: [:], fields: [],
+                     template: ["type": .string("cluster"), "dividers": .bool(true), "itemWidth": .number(44), "spacing": .number(12), "cornerRadius": .number(8),
+                                "items": .array([.object(["type": .string(down)]), .object(["type": .string(up)])])])
+    }
+
     static func info(for type: String) -> ItemTypeInfo {
         return all.first { $0.type == type }
             ?? ItemTypeInfo(type: type, name: type, symbol: "questionmark.square", category: "Other", defaults: [:], fields: [])
@@ -600,8 +636,8 @@ enum ItemCatalog {
             return EditorItem(fields: fields, document: document)
         }
         let info = self.info(for: type)
-        var fields = info.defaults
-        fields["type"] = .string(type)
+        var fields = info.template ?? info.defaults
+        fields["type"] = fields["type"] ?? .string(type)
         if align != "center" { fields["align"] = .string(align) }
         if info.isContainer, fields["items"] == nil {
             fields["items"] = .array([])

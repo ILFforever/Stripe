@@ -201,8 +201,9 @@ struct BarCanvas: View {
         let items = document.items(aligned: align)
         let targeted = session.targetZone == align
         let slot = session.dropSlot?.align == align ? session.dropSlot?.index : nil
+        let spacing = align == "center" ? BarMetrics.centerSpacing : BarMetrics.spacing
         return ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: align == "center" ? BarMetrics.centerSpacing : BarMetrics.spacing) {
+            HStack(spacing: spacing) {
                 if items.isEmpty && slot == nil {
                     Text(align.capitalizedFirst)
                         .font(.caption)
@@ -313,10 +314,7 @@ struct BarChip: View {
         (item.fields["background"]?.string?.namedOrHexColor).map { Color(nsColor: $0) }
     }
 
-    private var radius: CGFloat {
-        if item.fields["style"]?.string == "pill" { return 15 }
-        return CGFloat(item.fields["cornerRadius"]?.number ?? 6)
-    }
+    private var radius: CGFloat { CGFloat(item.cornerRadius) }
 
     /// Media keys and the like read best as icons; everything else gets a short
     /// label so similar icons (CPU, memory…) can be told apart.

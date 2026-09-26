@@ -901,7 +901,7 @@ struct BackgroundRow: View {
     private func setMode(_ mode: String) {
         switch mode {
         case "color":
-            item[string: "background"] = item[string: "background"] ?? "#3A3A3C"
+            item[string: "background"] = item[string: "background"] ?? "#444444"
             item[bool: "bordered"] = nil
         case "none":
             item[string: "background"] = nil
@@ -925,10 +925,7 @@ struct ShapeRow: View {
     /// Half the bar's height: fully round ends.
     static let pill = Double(ItemStyle.barHeight / 2)
 
-    private var radius: Double {
-        if item[string: "style"] == "pill" { return ShapeRow.pill }
-        return item[number: "cornerRadius"] ?? ShapeRow.standard
-    }
+    private var radius: Double { item.cornerRadius }
 
     private var summary: String {
         switch radius {
@@ -967,10 +964,11 @@ struct ShapeRow: View {
             .position(x: min(max(x, 14), width - 10), y: 6)
     }
 
-    /// Standard is stored as nothing, so the system keeps drawing its own key.
+    /// The item's own rounding is stored as nothing, so a standard key stays the
+    /// system's and a Stripe pill follows the theme.
     private func setRadius(_ value: Double) {
         item[string: "style"] = nil
-        item[number: "cornerRadius"] = value == ShapeRow.standard ? nil : value
+        item[number: "cornerRadius"] = value == item.defaultCornerRadius ? nil : value
     }
 }
 

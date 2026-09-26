@@ -19,6 +19,8 @@ struct BarItemDefinition: Decodable {
     let legacyAction: LegacyActionType
     let legacyLongAction: LegacyLongActionType
     let additionalParameters: [GeneralParameters.CodingKeys: GeneralParameter]
+    /// The preset's "type", e.g. "delete" (which the item type alone can't tell from a button).
+    var typeName = ""
 
     private enum CodingKeys: String, CodingKey {
         case type
@@ -63,6 +65,7 @@ struct BarItemDefinition: Decodable {
         } else {
             self.init(type: .staticButton(title: "unknown"), actions: [], action: .none, legacyLongAction: .none, additionalParameters: additionalParameters)
         }
+        typeName = type
     }
 }
 

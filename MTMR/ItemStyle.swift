@@ -90,7 +90,11 @@ struct ItemStyle {
               let base = NSImage(systemSymbolName: symbol, accessibilityDescription: symbol) else { return nil }
         var config = NSImage.SymbolConfiguration(pointSize: (fontSize ?? ItemStyle.defaultFontSize) + 1,
                                                  weight: fontWeight ?? .regular)
-        if let iconColor = iconColor {
+        if let iconColor = iconColor, iconColor.isWhite {
+            // Solid white, like the system's own keys; hierarchical would fade the
+            // secondary layers (light.max's dashes).
+            config = config.applying(NSImage.SymbolConfiguration(paletteColors: [iconColor]))
+        } else if let iconColor = iconColor {
             // Hierarchical, not a flat palette: a filled symbol (speaker.slash.circle.fill)
             // keeps its glyph visible against a lighter shade of the same color.
             config = config.applying(NSImage.SymbolConfiguration(hierarchicalColor: iconColor))
@@ -176,5 +180,13 @@ extension String {
             "white": .white, "black": .black,
         ]
         return named[lowercased()] ?? hexColor
+    }
+}
+
+extension NSColor {
+    /// Opaque white, whichever color space it was given in.
+    var isWhite: Bool {
+        guard let rgb = usingColorSpace(.sRGB) else { return false }
+        return rgb.redComponent > 0.99 && rgb.greenComponent > 0.99 && rgb.blueComponent > 0.99 && rgb.alphaComponent > 0.99
     }
 }

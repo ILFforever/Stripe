@@ -42,6 +42,8 @@ struct Theme {
     var liveMuteIcon = true
     /// Sliders sit on a panel with icons at each end (Stripe); MTMR's are plain.
     var sliderPanels = true
+    /// Keys and buttons drawn Stripe's way (see StripeKeys); MTMR's as MTMR drew them.
+    var restyledKeys = true
 
     struct CloseButton {
         var background: NSColor
@@ -68,7 +70,7 @@ struct Theme {
     )
 
     static let mtmr = Theme(name: .mtmr, drawnBattery: false, fadeInFirstTitle: false, litPlayPause: false,
-                            liveMuteIcon: false, sliderPanels: false, closeButton: stripe.closeButton)
+                            liveMuteIcon: false, sliderPanels: false, restyledKeys: false, closeButton: stripe.closeButton)
 
     static func named(_ name: Name) -> Theme {
         return name == .mtmr ? mtmr : stripe
@@ -82,4 +84,35 @@ struct Theme {
     }
 
     static var building: Theme?
+}
+
+/// Stripe's look for keys and buttons. Only fills in what the preset leaves
+/// unset, so an item's own settings always win.
+enum StripeKeys {
+    /// Text buttons are pills.
+    static let pillTypes: Set<String> = ["staticButton", "appleScriptTitledButton"]
+    static let pillRadius = ItemStyle.barHeight / 2
+
+    /// SF Symbols in place of MTMR's pictures, matching the system's own keys.
+    private static let symbols = [
+        "brightnessDown": "sun.min", "brightnessUp": "sun.max",
+        "illuminationDown": "light.min", "illuminationUp": "light.max",
+        "delete": "delete.left",
+    ]
+
+    static func apply(to button: CustomButtonTouchBarItem, definition: BarItemDefinition) {
+        let type = definition.typeName
+        var style = button.style
+        if let symbol = symbols[type], style.symbol == nil {
+            style.symbol = symbol
+            if type == "delete", definition.additionalParameters[.title] == nil { button.title = "" }
+        }
+        if type == "escape" || pillTypes.contains(type) {
+            style.fontWeight = style.fontWeight ?? .medium
+        }
+        if pillTypes.contains(type), style.cornerRadius == nil {
+            style.cornerRadius = pillRadius
+        }
+        button.style = style
+    }
 }

@@ -372,7 +372,7 @@ struct MultilineRow: View {
 struct ColorRow: View {
     let label: String
     @Binding var value: String
-    var suggested = "#3A3A3C"
+    var suggested = "#444444"
 
     var body: some View {
         FieldRow(label: label) {
@@ -383,7 +383,7 @@ struct ColorRow: View {
 
 struct ColorControl: View {
     @Binding var value: String
-    var suggested = "#3A3A3C"
+    var suggested = "#444444"
 
     var body: some View {
         HStack(spacing: 6) {

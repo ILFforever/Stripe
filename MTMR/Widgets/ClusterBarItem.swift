@@ -8,7 +8,7 @@
 //
 //    { "type": "cluster",
 //      "items": [{ "type": "previous" }, { "type": "play" }, { "type": "next" }],
-//      "background": "#3A3A3C", "style": "pill",   // or "bordered": false for none
+//      "background": "#444444", "style": "pill",   // or "bordered": false for none
 //      "dividers": true, "spacing": 0, "itemWidth": 40, "padding": 6 }
 //
 
@@ -31,8 +31,8 @@ class ClusterBarItem: NSCustomTouchBarItem, TearDownable {
     /// available yet while the bar loads its first preset during its own init.
     private unowned let bar: TouchBarController
 
-    /// The background of a key with no color of its own.
-    static let standardBackground = NSColor(srgbRed: 0x3A / 255, green: 0x3A / 255, blue: 0x3C / 255, alpha: 1)
+    /// The background of a key with no color of its own: the same gray as a key.
+    static let standardBackground = CustomButtonTouchBarItem.standardKeyColor
     static let standardCornerRadius: CGFloat = 6
 
     init(identifier: NSTouchBarItem.Identifier, items definitions: [BarItemDefinition], options: ClusterOptions,
@@ -60,6 +60,11 @@ class ClusterBarItem: NSCustomTouchBarItem, TearDownable {
             if let button = item as? CustomButtonTouchBarItem, button.backgroundColor == nil,
                child.additionalParameters[.bordered] == nil {
                 button.isBordered = false
+                // Full white, as on a key: without a key of its own, the system
+                // dims icons (and ignores a tint), so the icon is colored itself.
+                if button.style.symbol != nil, button.style.iconColor == nil {
+                    button.style.iconColor = .white
+                }
             }
             if let itemWidth = options.itemWidth {
                 view.widthAnchor.constraint(greaterThanOrEqualToConstant: itemWidth).isActive = true
