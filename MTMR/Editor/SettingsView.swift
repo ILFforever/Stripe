@@ -64,7 +64,7 @@ struct SettingsView: View {
                     .frame(minWidth: 460, maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .frame(minWidth: 860, minHeight: 680)
+        .modifier(FitsBar(metrics: snapshots.metrics))
         // The header sits in the title bar, beside the window buttons.
         .edgesIgnoringSafeArea(.top)
     }
@@ -85,6 +85,15 @@ struct SettingsView: View {
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 4)
+    }
+
+    /// Wide enough for the bar at its real size.
+    private struct FitsBar: ViewModifier {
+        @ObservedObject var metrics: BarMetrics
+
+        func body(content: Content) -> some View {
+            content.frame(minWidth: max(860, metrics.width + 2 * BarMetrics.bezel + 32), minHeight: 680)
+        }
     }
 
     private var leftPane: some View {

@@ -18,6 +18,22 @@ final class DragPreviewModel: ObservableObject {
     fileprivate(set) var type: String?
 }
 
+/// The size of the real bar's app region (everything right of the Esc key), kept
+/// apart from the pictures so the window's layout only redraws when it changes.
+final class BarMetrics: ObservableObject {
+    /// 1004pt on a 13" MacBook Pro with the Control Strip hidden; measured from
+    /// the bar once it's showing.
+    @Published fileprivate(set) var width: CGFloat = 1004
+    static let height: CGFloat = 30
+    /// Between items, and between each section.
+    static let spacing: CGFloat = 8
+    /// Between the center section's items.
+    static let centerSpacing: CGFloat = 1
+    /// The editor's black edge around the app region: room for the section and
+    /// selection outlines.
+    static let bezel: CGFloat = 7
+}
+
 final class ItemSnapshotModel: ObservableObject {
     @Published private(set) var images: [UUID: NSImage] = [:]
     /// Items the bar isn't showing right now, e.g. because of a "when" condition.
@@ -26,6 +42,7 @@ final class ItemSnapshotModel: ObservableObject {
     /// The item being dragged from the library, drawn from a real, off-bar
     /// instance of it, so the bar can show exactly what will be added.
     let preview = DragPreviewModel()
+    let metrics = BarMetrics()
 
     private let document: PresetDocument
     private let session: EditorSession
@@ -72,6 +89,9 @@ final class ItemSnapshotModel: ObservableObject {
         if previewItem != nil { snapshotPreview() }
 
         let bar = TouchBarController.shared
+        if let width = bar.basicView?.view.window?.frame.width, width > 0, width != metrics.width {
+            metrics.width = width
+        }
         let identifiers = bar.orderedIdentifiers
         guard bar.currentPresetPath == document.path, !document.hasPendingSave,
               identifiers.count == document.items.count else { return }

@@ -121,14 +121,21 @@ struct BarCanvas: View {
 
     var body: some View {
         VStack(spacing: 4) {
-            HStack(spacing: 6) {
-                zone("left")
-                zone("center").frame(maxWidth: .infinity)
-                zone("right")
+            BarFrame(metrics: snapshots.metrics) {
+                // Like the real bar, an empty side takes no room (and no gap), so
+                // the rest sits where it will; it opens up during a drag to take drops.
+                HStack(spacing: 0) {
+                    if showsZone("left") {
+                        zone("left")
+                        Spacer().frame(width: BarMetrics.spacing)
+                    }
+                    zone("center").frame(maxWidth: .infinity)
+                    if showsZone("right") {
+                        Spacer().frame(width: BarMetrics.spacing)
+                        zone("right")
+                    }
+                }
             }
-            .padding(6)
-            .frame(height: 52)
-            .background(RoundedRectangle(cornerRadius: EditorStyle.barRadius).fill(Color.black))
             selectionActions
         }
     }
@@ -152,7 +159,10 @@ struct BarCanvas: View {
                 }
                 .frame(width: ItemActionsTab.width, height: bottom - top)
                 .position(x: min(max(chip.midX - row.minX, 24), geometry.size.width - 24), y: (top + bottom) / 2)
-                .transition(.opacity)
+                // A tab per item, so a new selection's tab drops down out of its
+                // outline rather than sliding over from the last one.
+                .id(id)
+                .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
         .frame(height: 10)
@@ -183,12 +193,16 @@ struct BarCanvas: View {
         menu.popUp(positioning: nil, at: point, in: view)
     }
 
+    private func showsZone(_ align: String) -> Bool {
+        session.dragging != nil || !document.items(aligned: align).isEmpty
+    }
+
     private func zone(_ align: String) -> some View {
         let items = document.items(aligned: align)
         let targeted = session.targetZone == align
         let slot = session.dropSlot?.align == align ? session.dropSlot?.index : nil
         return ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
+            HStack(spacing: align == "center" ? BarMetrics.centerSpacing : BarMetrics.spacing) {
                 if items.isEmpty && slot == nil {
                     Text(align.capitalizedFirst)
                         .font(.caption)
@@ -219,9 +233,12 @@ struct BarCanvas: View {
                 }
                 if let slot = slot, slot >= items.count { dropPlaceholder }
             }
-            .padding(.horizontal, 4)
             .frame(maxHeight: .infinity)
+            // Room for the selection outline, which the scroll view would clip...
+            .padding(BarChip.outlineRoom)
         }
+        // ...taken back outside, so the items stay where they are on the real bar.
+        .padding(-BarChip.outlineRoom)
         .coordinateSpace(name: align)
         .onPreferenceChange(ChipFramesKey.self) { frames in
             for (id, frame) in frames {
@@ -230,9 +247,12 @@ struct BarCanvas: View {
             }
         }
         .frame(minWidth: items.isEmpty ? 70 : nil)
+        // Drawn just outside the section so it takes no room from the items, which
+        // sit exactly where they will on the bar.
         .background(RoundedRectangle(cornerRadius: 7)
             // The item or gap inside carries the blue outline; the section just brightens.
-            .strokeBorder(Color.white.opacity(targeted ? 0.5 : 0.18), style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+            .strokeBorder(Color.white.opacity(targeted ? 0.5 : 0.18), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+            .padding(-3))
         .onDrop(of: [.plainText], delegate: ZoneDropDelegate(document: document, session: session,
                                                              snapshots: snapshots, align: align))
         .fixedSize(horizontal: align != "center", vertical: false)
@@ -241,6 +261,21 @@ struct BarCanvas: View {
     private var dropPlaceholder: some View {
         DropPlaceholder(preview: snapshots.preview)
             .transition(.opacity.combined(with: .scale(scale: 0.85)))
+    }
+}
+
+/// The bar at its real size: its contents get exactly the width and height of
+/// the Touch Bar's app region, point for point, on a black bezel.
+struct BarFrame<Content: View>: View {
+    @ObservedObject var metrics: BarMetrics
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        content
+            .frame(width: metrics.width, height: BarMetrics.height)
+            .padding(BarMetrics.bezel)
+            .background(RoundedRectangle(cornerRadius: EditorStyle.barRadius).fill(Color.black))
+            .frame(maxWidth: .infinity)
     }
 }
 
@@ -265,6 +300,10 @@ struct DropPlaceholder: View {
 struct BarChip: View {
     /// The selection outline (and the "•••" tab joined to it).
     static let outlineWidth: CGFloat = 3
+    /// From the item's edge to the middle of the outline.
+    static let outlineGap: CGFloat = 2
+    /// How far the outline reaches outside the item.
+    static let outlineRoom: CGFloat = 4
 
     @ObservedObject var item: EditorItem
     let snapshot: NSImage?
@@ -298,12 +337,18 @@ struct BarChip: View {
         }
     }
 
+    /// Drawn just outside the item, rounded to follow its corners: the item's
+    /// radius plus the gap, so the two curves run parallel.
+    private var selectionOutline: some View {
+        RoundedRectangle(cornerRadius: radius + BarChip.outlineGap)
+            .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: BarChip.outlineWidth)
+            .padding(-BarChip.outlineGap)
+    }
+
     private func image(_ snapshot: NSImage) -> some View {
             Image(nsImage: snapshot)
                 .frame(width: snapshot.size.width, height: snapshot.size.height)
-                .overlay(RoundedRectangle(cornerRadius: radius)
-                    .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: BarChip.outlineWidth)
-                    .padding(-2))
+                .overlay(selectionOutline)
                 .contentShape(Rectangle())
                 .help(item.displayName)
     }
@@ -343,8 +388,7 @@ struct BarChip: View {
         .frame(minWidth: 30, minHeight: 30)
         .background(RoundedRectangle(cornerRadius: radius)
             .fill(background ?? (item.fields["bordered"]?.bool == false ? Color.clear : Color(white: 0.22))))
-        .overlay(RoundedRectangle(cornerRadius: radius)
-            .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: BarChip.outlineWidth))
+        .overlay(selectionOutline)
         .contentShape(Rectangle())
         .help(item.displayName)
     }
@@ -375,8 +419,7 @@ struct BarChip: View {
         .frame(minWidth: 30)
         .background(RoundedRectangle(cornerRadius: radius)
             .fill(background ?? (item.fields["bordered"]?.bool == false ? Color.clear : Color(white: 0.22))))
-        .overlay(RoundedRectangle(cornerRadius: radius)
-            .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: BarChip.outlineWidth))
+        .overlay(selectionOutline)
         .contentShape(Rectangle())
         .help(item.displayName)
     }
