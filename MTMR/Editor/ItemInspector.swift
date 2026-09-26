@@ -442,7 +442,7 @@ struct StyleEditor: View {
         case .iconColor: ColorRow(label: "Icon color", value: string("iconColor"), suggested: "#FFFFFF")
         case .background:
             BackgroundRow(item: item)
-            if item[string: "background"] != nil { ShapeRow(item: item) }
+            if BackgroundRow.mode(of: item) != "none" { ShapeRow(item: item) }
         case .fontSize: NumberFieldRow(label: "Font size", placeholder: "15", value: number("fontSize"))
         case .fontWeight:
             ChoiceRow(label: "Font weight",
@@ -863,10 +863,17 @@ struct RawJSONEditor: View {
 struct BackgroundRow: View {
     @ObservedObject var item: EditorItem
 
-    private var mode: String {
+    private var mode: String { BackgroundRow.mode(of: item) }
+
+    static func mode(of item: EditorItem) -> String {
         if item[string: "background"] != nil { return "color" }
-        if item[bool: "bordered"] == false { return "none" }
-        return "standard"
+        let bordered = item[bool: "bordered"] ?? !item.info.borderlessByDefault
+        return bordered ? "standard" : "none"
+    }
+
+    /// "bordered" only where it differs from what the item does by default.
+    private func setBordered(_ bordered: Bool) {
+        item[bool: "bordered"] = bordered == !item.info.borderlessByDefault ? nil : bordered
     }
 
     var body: some View {
@@ -898,14 +905,13 @@ struct BackgroundRow: View {
             item[bool: "bordered"] = nil
         case "none":
             item[string: "background"] = nil
-            item[bool: "bordered"] = false
+            setBordered(false)
             item[string: "style"] = nil
             item[number: "cornerRadius"] = nil
         default:
+            // The shape stays: the standard gray key takes one too.
             item[string: "background"] = nil
-            item[bool: "bordered"] = nil
-            item[string: "style"] = nil
-            item[number: "cornerRadius"] = nil
+            setBordered(true)
         }
     }
 }
@@ -914,28 +920,57 @@ struct BackgroundRow: View {
 struct ShapeRow: View {
     @ObservedObject var item: EditorItem
 
-    private var shape: String {
-        if item[string: "style"] == "pill" { return "pill" }
-        if item[number: "cornerRadius"] != nil { return "rounded" }
-        return "standard"
+    /// The standard key's rounding, where the system draws the key itself.
+    static let standard: Double = 6
+    /// Half the bar's height: fully round ends.
+    static let pill = Double(ItemStyle.barHeight / 2)
+
+    private var radius: Double {
+        if item[string: "style"] == "pill" { return ShapeRow.pill }
+        return item[number: "cornerRadius"] ?? ShapeRow.standard
+    }
+
+    private var summary: String {
+        switch radius {
+        case 0: return "Square"
+        case ShapeRow.standard: return "Standard"
+        case ShapeRow.pill: return "Pill"
+        default: return "\(Int(radius)) pt"
+        }
     }
 
     var body: some View {
-        FieldRow(label: "Shape") {
-            Picker("", selection: Binding(get: { shape }, set: setShape)) {
-                Text("Standard").tag("standard")
-                Text("Rounded").tag("rounded")
-                Text("Pill").tag("pill")
+        FieldRow(label: "Corners", help: summary) {
+            VStack(spacing: 2) {
+                Slider(value: Binding(get: { radius }, set: { setRadius($0.rounded()) }), in: 0...ShapeRow.pill)
+                GeometryReader { geometry in
+                    mark("Square", at: 0, in: geometry.size.width)
+                    mark("Standard", at: ShapeRow.standard, in: geometry.size.width)
+                    mark("Pill", at: ShapeRow.pill, in: geometry.size.width)
+                }
+                .frame(height: 12)
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
             .frame(width: 210)
         }
     }
 
-    private func setShape(_ shape: String) {
-        item[string: "style"] = shape == "pill" ? "pill" : nil
-        item[number: "cornerRadius"] = shape == "rounded" ? (item[number: "cornerRadius"] ?? 8) : nil
+    /// A label under the slider that jumps to its value.
+    private func mark(_ title: String, at value: Double, in width: CGFloat) -> some View {
+        // The slider's knob travels between its ends, inset by about half the knob.
+        let inset: CGFloat = 8
+        let x = inset + (width - 2 * inset) * CGFloat(value / ShapeRow.pill)
+        return Button(title) { setRadius(value) }
+            .buttonStyle(.plain)
+            .font(.system(size: 9))
+            .foregroundColor(radius == value ? .accentColor : .secondary)
+            .fixedSize()
+            .position(x: min(max(x, 14), width - 10), y: 6)
+    }
+
+    /// Standard is stored as nothing, so the system keeps drawing its own key.
+    private func setRadius(_ value: Double) {
+        item[string: "style"] = nil
+        item[number: "cornerRadius"] = value == ShapeRow.standard ? nil : value
     }
 }
 

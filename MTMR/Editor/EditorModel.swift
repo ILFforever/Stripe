@@ -415,6 +415,10 @@ struct ItemTypeInfo {
     let defaults: [String: JSONValue]
     let fields: [FieldSpec]
     var isContainer: Bool { ["group", "popover", "cluster"].contains(type) }
+    /// Drawn without a key unless the preset asks for one ("bordered": true).
+    var borderlessByDefault: Bool {
+        ["timeButton", "music", "dnd", "nightShift", "darkMode", "appleScriptTitledButton"].contains(type)
+    }
 
     // What the inspector offers for this type, so it only shows controls that do something.
 

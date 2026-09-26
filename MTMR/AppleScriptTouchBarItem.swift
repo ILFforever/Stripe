@@ -17,6 +17,8 @@ class AppleScriptTouchBarItem: CustomButtonTouchBarItem, TearDownable {
         self.interval = interval
         self.alternativeImages = alternativeImages
         super.init(identifier: identifier, title: "")
+        // No key behind it unless the preset asks for one ("bordered": true).
+        isBordered = false
         hideUntilFirstTitle()
         forceHideConstraint = view.widthAnchor.constraint(equalToConstant: 0)
         title = "scheduled"
@@ -28,9 +30,6 @@ class AppleScriptTouchBarItem: CustomButtonTouchBarItem, TearDownable {
                 return
             }
             self.script = script
-            DispatchQueue.main.async {
-                self.isBordered = false
-            }
             
             var error: NSDictionary?
             guard script.compileAndReturnError(&error) else {

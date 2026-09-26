@@ -240,7 +240,7 @@ class CustomButtonTouchBarItem: NSCustomTouchBarItem, NSGestureRecognizerDelegat
         button.wantsLayer = style.cornerRadius != nil
         button.layer?.cornerRadius = style.cornerRadius ?? 0
         button.layer?.backgroundColor = nil
-        if let color = backgroundColor, let radius = style.cornerRadius {
+        if let color = fillColor, let radius = style.cornerRadius {
             // Custom-radius background: draw it on the layer, not with a bezel.
             button.isBordered = false
             button.bezelStyle = .inline
@@ -269,12 +269,26 @@ class CustomButtonTouchBarItem: NSCustomTouchBarItem, NSGestureRecognizerDelegat
         finishViewConfiguration()
     }
 
+    /// The system's gray key, as it looks on the bar.
+    static let standardKeyColor = NSColor(srgbRed: 0x44 / 255, green: 0x44 / 255, blue: 0x44 / 255, alpha: 1)
+
+    /// The background drawn behind the key. The system draws its gray key only
+    /// at its own rounding, so with a shape set we draw that gray ourselves.
+    private var fillColor: NSColor? {
+        backgroundColor ?? (isBordered && style.cornerRadius != nil ? CustomButtonTouchBarItem.standardKeyColor : nil)
+    }
+
+    /// Our stand-in for the gray key lightens while touched, as the system's does.
+    private var drawnStandardPressed: NSColor? {
+        backgroundColor == nil && fillColor != nil ? NSColor(srgbRed: 0x63 / 255, green: 0x63 / 255, blue: 0x66 / 255, alpha: 1) : nil
+    }
+
     /// The pressed or active color when one applies, else the normal background.
     /// Only colors change here, so a press doesn't rebuild the button mid-touch.
     private func applyStateBackground() {
         guard let button = button else { return }
-        var color = backgroundColor
-        if isPressed, let pressed = style.pressedBackground {
+        var color = fillColor
+        if isPressed, let pressed = style.pressedBackground ?? drawnStandardPressed {
             color = pressed
         } else if isActive, let active = style.activeBackground {
             color = active
