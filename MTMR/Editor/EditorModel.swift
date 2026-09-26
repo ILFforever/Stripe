@@ -448,6 +448,30 @@ struct ItemTypeInfo {
     var supportsBackground: Bool { supportsButtonStyling || type == "cluster" }
     var supportsIcon: Bool { supportsButtonStyling }
     var supportsActions: Bool { !isContainer && !["volume", "brightness", "swipe", "dock", "upnext"].contains(type) }
+    /// The built-in designs the Style tab offers for this type, and the preset
+    /// key that picks one. MTMR's classic look is one of them where it differs.
+    var designs: (key: String, fallback: String, options: [(id: String, name: String, help: String)])? {
+        if type == "performance" {
+            return ("design", PerformanceBarItem.Design.chip.rawValue, [
+                ("chip", "Chip", "A chip icon, and each figure in its graph color"),
+                ("minimal", "Minimal", "Small CPU and GPU labels beside bold figures"),
+                ("graph", "Graph", "A thin meter beside each figure"),
+            ])
+        }
+        guard let classic = mtmrLook else { return nil }
+        return ("theme", "stripe", [("stripe", "Stripe", "Stripe's look"), ("mtmr", "MTMR classic", classic)])
+    }
+
+    /// Which performance page holding it opens, if any.
+    var performancePage: PerformancePanelOptions.Kind? {
+        switch type {
+        case "cpu": return .cpu
+        case "gpu": return .gpu
+        case "performance": return .unified
+        default: return nil
+        }
+    }
+
     /// What the MTMR look changes for this type, if it has one ("theme": "mtmr").
     var mtmrLook: String? {
         switch type {
@@ -535,6 +559,9 @@ enum ItemCatalog {
                               FieldSpec(path: "locale", label: "Locale", kind: .text(placeholder: "e.g. en_GB"))]),
         ItemTypeInfo(type: "cpu", name: "CPU", symbol: "cpu", category: "Status", defaults: ["refreshInterval": .number(3)],
                      fields: [FieldSpec(path: "refreshInterval", label: "Refresh every (s)", kind: .number(placeholder: "5"))]),
+        ItemTypeInfo(type: "gpu", name: "GPU", symbol: "cube", category: "Status", defaults: [:],
+                     fields: [FieldSpec(path: "refreshInterval", label: "Refresh every (s)", kind: .number(placeholder: "2"))]),
+        ItemTypeInfo(type: "performance", name: "CPU + GPU", symbol: "cpu", category: "Status", defaults: [:], fields: []),
         ItemTypeInfo(type: "network", name: "Network Speed", symbol: "arrow.up.arrow.down", category: "Status", defaults: ["flip": .bool(true)],
                      fields: [FieldSpec(path: "flip", label: "Upload on top", kind: .toggle(default: false)),
                               FieldSpec(path: "units", label: "Units", kind: .choice(["dynamic", "B/s", "KB/s", "MB/s", "GB/s"]))]),

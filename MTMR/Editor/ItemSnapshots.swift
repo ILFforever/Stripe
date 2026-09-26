@@ -182,6 +182,7 @@ final class ContainerPreviewModel: ObservableObject {
         switch item {
         case let popover as PopoverBarItem: content = popover.makePreviewView()
         case let folder as GroupBarItem: content = folder.makePreviewView()
+        case let group as ClusterBarItem: content = group.view // placed where it sits, below
         default: content = nil
         }
         guard let content = content else { tearDownItems([item]); return }
@@ -198,12 +199,22 @@ final class ContainerPreviewModel: ObservableObject {
         bar.layer?.backgroundColor = NSColor.black.cgColor
         content.translatesAutoresizingMaskIntoConstraints = false
         bar.addSubview(content)
-        NSLayoutConstraint.activate([
-            content.leadingAnchor.constraint(equalTo: bar.leadingAnchor),
-            content.trailingAnchor.constraint(equalTo: bar.trailingAnchor),
-            content.topAnchor.constraint(equalTo: bar.topAnchor),
-            content.bottomAnchor.constraint(equalTo: bar.bottomAnchor),
-        ])
+        if item is ClusterBarItem {
+            // A group is on the bar already: picture it alone, where it sits there.
+            let x = ContainerPreviewModel.barPosition(of: container)
+                ?? (container.align == "right" ? width - content.fittingSize.width : 0)
+            NSLayoutConstraint.activate([
+                content.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: x),
+                content.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+            ])
+        } else {
+            NSLayoutConstraint.activate([
+                content.leadingAnchor.constraint(equalTo: bar.leadingAnchor),
+                content.trailingAnchor.constraint(equalTo: bar.trailingAnchor),
+                content.topAnchor.constraint(equalTo: bar.topAnchor),
+                content.bottomAnchor.constraint(equalTo: bar.bottomAnchor),
+            ])
+        }
         // In a window, never shown, so every view and layer draws as on the bar.
         let window = NSWindow(contentRect: bar.frame, styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -228,6 +239,17 @@ final class ContainerPreviewModel: ObservableObject {
     }
 
     private var window: NSWindow?
+
+    /// Where a top-level item starts on the real bar, from the bar's own view of
+    /// it (the bar builds items in preset order; see ItemSnapshotModel).
+    private static func barPosition(of item: EditorItem) -> CGFloat? {
+        let bar = TouchBarController.shared
+        guard let document = item.document, bar.currentPresetPath == document.path,
+              bar.orderedIdentifiers.count == document.items.count,
+              let index = document.items.firstIndex(where: { $0 === item }),
+              let view = bar.items[bar.orderedIdentifiers[index]]?.view, view.window != nil else { return nil }
+        return view.convert(view.bounds, to: nil).minX
+    }
 
     private static func clearScrollBackgrounds(in view: NSView) {
         if let scroll = view as? NSScrollView {

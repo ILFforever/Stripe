@@ -9,7 +9,7 @@
 //    open --env STRIPE_DEBUG=1 build/Stripe.app
 //    swift -e 'import Foundation; DistributedNotificationCenter.default().postNotificationName(.init("com.ilfforever.stripe.debug"), object: "popover", deliverImmediately: true)'
 //
-//  Commands: "popover" (expand the first popover), "group" (open the first group),
+//  Commands: "performance [cpu|gpu]" (open that performance page), "popover" (expand the first popover), "group" (open the first group),
 //  "dismiss" (return to the main bar), "settings" (open the editor window),
 //  "select N" (select the Nth top-level item in the editor), "tap NAME" (tap the
 //  first item whose identifier contains NAME, e.g. "tap battery"), "press NAME"
@@ -41,6 +41,10 @@ enum DebugHooks {
             (items.first { $0 is GroupBarItem } as? GroupBarItem)?.open()
         case "settings":
             SettingsWindowController.shared.show()
+        case let page where page.hasPrefix("performance"):
+            // "performance", "performance cpu" or "performance gpu": opens that page.
+            let kind = PerformancePanelOptions.Kind(rawValue: String(page.dropFirst(12))) ?? .unified
+            PerformancePanel.shared.open(options: PerformancePanelOptions(kind: kind, closeSide: .right))
         case let select where select.hasPrefix("select "):
             // "select 3" selects the 4th top-level item in the editor; "select 3.1"
             // the 2nd item inside it (a folder, group or popover), and so on.

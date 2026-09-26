@@ -13,7 +13,7 @@ class CPUBarItem: CustomButtonTouchBarItem {
     private var refreshQueue: DispatchQueue? = DispatchQueue(label: "mtmr.cpu")
     private let defaultSingleTapScript: NSAppleScript! = "activate application \"Activity Monitor\"\rtell application \"System Events\"\r\ttell process \"Activity Monitor\"\r\t\ttell radio button \"CPU\" of radio group 1 of group 2 of toolbar 1 of window 1 to perform action \"AXPress\"\r\tend tell\rend tell".appleScript
 
-    init(identifier: NSTouchBarItem.Identifier, refreshInterval: TimeInterval) {
+    init(identifier: NSTouchBarItem.Identifier, refreshInterval: TimeInterval, panel: PerformancePanelOptions) {
         self.refreshInterval = refreshInterval
         super.init(identifier: identifier, title: "")
         hideUntilFirstTitle()
@@ -24,13 +24,13 @@ class CPUBarItem: CustomButtonTouchBarItem {
         }
         
         // Set default action
-        if actions.filter({ $0.trigger == .singleTap }).isEmpty {
-            actions.append(ItemAction(
-                trigger: .singleTap,
-                defaultTapAction
-            ))
-        }
+        // Holding opens Activity Monitor's CPU tab.
+        actions.append(ItemAction(trigger: .longTap, defaultTapAction))
         
+        // A tap opens the CPU page.
+        opensPerformancePanel(panel)
+        PerformanceStats.shared.start()
+
         refreshAndSchedule()
     }
 

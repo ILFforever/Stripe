@@ -104,12 +104,18 @@ struct ItemInspector: View {
                 BatteryPanelSection(item: item, preview: BatteryPanelPreviewModel.shared)
             }
         }
+        if let page = item.info.performancePage {
+            InspectorGroup(title: page == .gpu ? "GPU Page" : page == .cpu ? "CPU Page" : "Performance Page",
+                           symbol: "rectangle.split.3x1") {
+                PerformancePanelSection(item: item, kind: page, preview: PerformancePanelPreviewModel.shared)
+            }
+        }
         if item.info.isContainer {
             InspectorGroup(title: "Items", symbol: "square.stack") {
                 ContainerItemsEditor(container: item, session: session)
             }
         }
-        if item.info.fields.isEmpty && item.type != "battery" && !item.info.isContainer {
+        if item.info.fields.isEmpty && item.type != "battery" && item.info.performancePage == nil && !item.info.isContainer {
             Text("\(item.info.name) has no settings of its own. How it looks is under Style, and what it does under Behavior.")
                 .foregroundColor(.secondary)
         }
@@ -118,21 +124,36 @@ struct ItemInspector: View {
     /// How it looks: only the styles it sets (plus the essentials), and a menu to add others.
     @ViewBuilder
     private var styleTab: some View {
-        if let classic = item.info.mtmrLook {
-            InspectorGroup(title: "Theme", symbol: "sparkles") {
-                FieldRow(label: "Design", help: item[string: "theme"] == "mtmr" ? classic : "MTMR: \(classic.prefix(1).lowercased() + classic.dropFirst())") {
-                    Picker("", selection: Binding(get: { item[string: "theme"] ?? "stripe" },
-                                                  set: { item[string: "theme"] = $0 == "stripe" ? nil : $0 })) {
-                        Text("Stripe").tag("stripe")
-                        Text("MTMR").tag("mtmr")
+        if item.info.designs != nil || item.info.performancePage != nil {
+            InspectorGroup(title: "Design", symbol: "sparkles") {
+                if let designs = item.info.designs {
+                    let chosen = item[string: designs.key] ?? designs.fallback
+                    FieldRow(label: "Design", help: designs.options.first { $0.id == chosen }?.help) {
+                        Picker("", selection: Binding(get: { chosen },
+                                                      set: { item[string: designs.key] = $0 == designs.fallback ? nil : $0 })) {
+                            ForEach(designs.options, id: \.id) { option in
+                                Text(option.name).tag(option.id)
+                            }
+                        }
+                        .pickerStyle(.segmented).labelsHidden().fixedSize()
                     }
-                    .pickerStyle(.segmented).labelsHidden().fixedSize()
+                }
+                if item.info.performancePage != nil {
+                    FieldRow(label: "Colors", help: item.type == "performance" ? "Here and on its page" : "On its page") {
+                        Picker("", selection: Binding(get: { item[string: "colors"] ?? PerformancePalette.standard.id },
+                                                      set: { item[string: "colors"] = $0 == PerformancePalette.standard.id ? nil : $0 })) {
+                            ForEach(PerformancePalette.all, id: \.id) { palette in
+                                Text(palette.name).tag(palette.id)
+                            }
+                        }
+                        .pickerStyle(.segmented).labelsHidden().fixedSize()
+                    }
                 }
             }
         }
         if item.info.supportsIcon || item.info.supportsBackground {
             StyleEditor(item: item, whileOn: false).id(item.id)
-        } else if item.info.mtmrLook == nil {
+        } else if item.info.designs == nil {
             Text("\(item.info.name) doesn't take styling. Its width is under Advanced.")
                 .foregroundColor(.secondary)
         }
@@ -1019,7 +1040,7 @@ struct ContainerItemsEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             let children = container.children ?? []
-            if ["popover", "group"].contains(container.type), !children.isEmpty {
+            if ["popover", "group", "cluster"].contains(container.type), !children.isEmpty {
                 OpenedBarPreview(container: container)
                 Divider().opacity(0.5)
             }
@@ -1085,8 +1106,26 @@ private struct OpenedBarPreview: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(container.type == "popover" ? "What it expands into" : "What it opens")
+            Text(caption)
                 .foregroundColor(.secondary)
+            openedBar
+        }
+        .padding(.vertical, 8)
+        .onAppear { model.build(container) }
+        // Rebuilt after edits (including to its items), once they settle.
+        .onReceive(documentChanges) { _ in model.build(container) }
+        .onDisappear { model.stop() }
+    }
+
+    private var caption: String {
+        switch container.type {
+        case "popover": return "What it expands into"
+        case "cluster": return "How it looks on the bar"
+        default: return "What it opens"
+        }
+    }
+
+    private var openedBar: some View {
             Group {
                 if let image = model.image {
                     Image(nsImage: image)
@@ -1100,13 +1139,8 @@ private struct OpenedBarPreview: View {
             }
             .padding(5)
             .background(RoundedRectangle(cornerRadius: EditorStyle.barRadius).fill(Color.black))
-            .help("The bar it opens, scaled to fit")
-        }
-        .padding(.vertical, 8)
-        .onAppear { model.build(container) }
-        // Rebuilt after edits (including to its items), once they settle.
-        .onReceive(documentChanges) { _ in model.build(container) }
-        .onDisappear { model.stop() }
+            .help(container.type == "cluster" ? "The group where it sits on the bar, scaled to fit"
+                                               : "The bar it opens, scaled to fit")
     }
 
     private var documentChanges: AnyPublisher<Void, Never> {

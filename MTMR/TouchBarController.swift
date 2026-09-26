@@ -31,8 +31,12 @@ extension ItemType {
             return "com.toxblh.mtmr.timeButton."
         case .battery:
             return "com.toxblh.mtmr.battery."
-        case .cpu(refreshInterval: _):
+        case .cpu:
             return "com.toxblh.mtmr.cpu."
+        case .gpu:
+            return "com.ilfforever.stripe.gpu."
+        case .performance:
+            return "com.ilfforever.stripe.performance."
         case .dock(autoResize: _, filter: _):
             return "com.toxblh.mtmr.dock"
         case .volume:
@@ -493,8 +497,12 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
             // The panel's back chevron defaults to the battery item's side of the bar.
             if options.panel.closeSide == nil { options.panel.closeSide = item.align == .left ? .left : .right }
             barItem = BatteryBarItem(identifier: identifier, options: options)
-        case let .cpu(refreshInterval: refreshInterval):
-            barItem = CPUBarItem(identifier: identifier, refreshInterval: refreshInterval)
+        case let .cpu(refreshInterval: refreshInterval, panel: panel):
+            barItem = CPUBarItem(identifier: identifier, refreshInterval: refreshInterval, panel: panel.onSide(of: item))
+        case let .gpu(refreshInterval: refreshInterval, panel: panel):
+            barItem = GPUBarItem(identifier: identifier, refreshInterval: refreshInterval, panel: panel.onSide(of: item))
+        case let .performance(design: design, panel: panel):
+            barItem = PerformanceBarItem(identifier: identifier, design: design, panel: panel.onSide(of: item))
         case let .dock(autoResize: autoResize, filter: regexString):
             if let regexString = regexString {
                 guard let regex = try? NSRegularExpression(pattern: regexString, options: []) else {

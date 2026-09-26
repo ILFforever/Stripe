@@ -229,7 +229,7 @@ final class AppEnergy {
     /// The app a process belongs to: helpers inside Google Chrome.app count as
     /// Google Chrome. Background processes outside any app are left out; their
     /// names (siriactionsd…) mean little on the bar.
-    private static func app(of pid: pid_t) -> (String, String)? {
+    static func app(of pid: pid_t) -> (String, String)? {
         var buffer = [CChar](repeating: 0, count: 4096)
         guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
         let path = String(cString: buffer)
@@ -238,7 +238,7 @@ final class AppEnergy {
         return ((appPath as NSString).lastPathComponent.replacingOccurrences(of: ".app", with: ""), appPath)
     }
 
-    private static func icon(for path: String) -> NSImage? {
+    static func icon(for path: String) -> NSImage? {
         iconLock.lock()
         defer { iconLock.unlock() }
         if let cached = icons[path] { return cached }

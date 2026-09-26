@@ -13,7 +13,7 @@ below apply.
 
 | Kind | Types | What it is |
 |---|---|---|
-| **Button** | `staticButton`, `shellScriptTitledButton`, `appleScriptTitledButton`; keys (`escape`, `delete`, `brightnessUp`/`Down`, `illuminationUp`/`Down`, `previous`, `next`, `volumeUp`/`Down`, `sleep`, `displaySleep`, `close`, `exitTouchbar`); readouts (`timeButton`, `cpu`, `network`, `battery`, `weather`, `yandexWeather`, `currency`, `inputsource`, `music`) | A key you tap. Everything drawn as a single key is a button underneath, including the widgets. |
+| **Button** | `staticButton`, `shellScriptTitledButton`, `appleScriptTitledButton`; keys (`escape`, `delete`, `brightnessUp`/`Down`, `illuminationUp`/`Down`, `previous`, `next`, `volumeUp`/`Down`, `sleep`, `displaySleep`, `close`, `exitTouchbar`); readouts (`timeButton`, `cpu`, `gpu`, `performance` (CPU + GPU stacked), `network`, `battery`, `weather`, `yandexWeather`, `currency`, `inputsource`, `music`) | A key you tap. Everything drawn as a single key is a button underneath, including the widgets. |
 | **Toggle** | `dnd`, `nightShift`, `darkMode`, `mute`, `pomodoro`, `play` | A button that knows its own on/off state. |
 | **Popover** | `popover` | A button that expands into its `items` across the bar (e.g. a volume slider). Press and hold can slide its first slider without opening it. |
 | **Slider** | `volume`, `brightness` | A draggable level, with icons at the ends. |
@@ -132,6 +132,10 @@ All of these are subject to the Haptic Feedback switch in Stripe's menu-bar menu
 
 ### Type-specific
 Each type's own keys (e.g. `refreshInterval`, `formatTemplate`, `showPercentage`, `pressAndHold`, `dividers`) are listed in its catalog entry in `MTMR/Editor/EditorModel.swift`, and shown first in its inspector.
+
+**Designs.** Some types have built-in designs, picked on the Style tab: `"theme": "mtmr"` gives MTMR's classic look where it differs, and `performance` takes `"design"`: `"chip"` (default), `"minimal"` or `"graph"`.
+
+**Pages.** Tapping `cpu`, `gpu` or `performance` opens its page (holding opens Activity Monitor) across the bar (the CPU page, the GPU page, or the unified one), like the battery's overview. `"panelTiles"` picks the tiles (`cpu`, `cores`, `graph`, `load`, `gpu`, `gpuDetail`, `gpuMemory`, `memory`, `apps`) and `"panelCloseSide"` which end the back button is at.
 
 ## Precedence
 1. **The preset beats defaults.** Anything set on an item wins over the built-in look (and, once themes land, over the theme).

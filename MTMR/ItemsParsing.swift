@@ -285,7 +285,9 @@ enum ItemType: Decodable {
     case shellScriptTitledButton(source: SourceProtocol, refreshInterval: Double)
     case timeButton(formatTemplate: String, timeZone: String?, locale: String?)
     case battery(options: BatteryOptions)
-    case cpu(refreshInterval: Double)
+    case cpu(refreshInterval: Double, panel: PerformancePanelOptions)
+    case gpu(refreshInterval: Double, panel: PerformancePanelOptions)
+    case performance(design: PerformanceBarItem.Design, panel: PerformancePanelOptions)
     case dock(autoResize: Bool, filter: String?)
     case volume
     case mute
@@ -343,6 +345,7 @@ enum ItemType: Decodable {
         case liveIcon
         case showIcon, showPercentage, percentInside, showTime, animate, lowThreshold, tapToCycle, holdOpens
         case panelCloseSide, panelTiles, panelGraphHours, panelBarMinutes
+        case design, colors
         case dividers, spacing, itemWidth, padding
     }
 
@@ -353,6 +356,8 @@ enum ItemType: Decodable {
         case timeButton
         case battery
         case cpu
+        case gpu
+        case performance
         case dock
         case volume
         case brightness
@@ -423,7 +428,16 @@ enum ItemType: Decodable {
             
         case .cpu:
             let refreshInterval = try container.decodeIfPresent(Double.self, forKey: .refreshInterval) ?? 5.0
-            self = .cpu(refreshInterval: refreshInterval)
+            self = .cpu(refreshInterval: refreshInterval, panel: try ItemType.panel(.cpu, container))
+
+        case .gpu:
+            let refreshInterval = try container.decodeIfPresent(Double.self, forKey: .refreshInterval) ?? 2.0
+            self = .gpu(refreshInterval: refreshInterval, panel: try ItemType.panel(.gpu, container))
+
+        case .performance:
+            let design = try container.decodeIfPresent(String.self, forKey: .design)
+                .flatMap(PerformanceBarItem.Design.init(rawValue:)) ?? .chip
+            self = .performance(design: design, panel: try ItemType.panel(.unified, container))
 
         case .dock:
             let autoResize = try container.decodeIfPresent(Bool.self, forKey: .autoResize) ?? false
@@ -518,6 +532,16 @@ enum ItemType: Decodable {
             let interval = try container.decodeIfPresent(Double.self, forKey: .refreshInterval) ?? 60.0
             self = .upnext(from: from, to: to, maxToShow: maxToShow, autoResize: autoResize)
         }
+    }
+
+    /// A performance page's options: "panelTiles" (only those this page has) and "panelCloseSide".
+    private static func panel(_ kind: PerformancePanelOptions.Kind,
+                              _ container: KeyedDecodingContainer<CodingKeys>) throws -> PerformancePanelOptions {
+        let tiles = try container.decodeIfPresent([String].self, forKey: .panelTiles)
+            .map { Set($0.compactMap(PerformancePanelOptions.Tile.init(rawValue:)).filter(kind.tiles.contains)) }
+        return PerformancePanelOptions(kind: kind, tiles: tiles,
+                                       closeSide: try container.decodeIfPresent(Align.self, forKey: .panelCloseSide),
+                                       palette: PerformancePalette.named(try container.decodeIfPresent(String.self, forKey: .colors)))
     }
 }
 

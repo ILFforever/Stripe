@@ -92,6 +92,7 @@ enum StripeKeys {
     /// Text buttons are pills.
     static let pillTypes: Set<String> = ["staticButton", "appleScriptTitledButton"]
     static let pillRadius = ItemStyle.barHeight / 2
+    static let standardRadius: CGFloat = 6
 
     /// SF Symbols in place of MTMR's pictures, matching the system's own keys.
     private static let symbols = [
@@ -112,6 +113,11 @@ enum StripeKeys {
         }
         if pillTypes.contains(type), style.cornerRadius == nil {
             style.cornerRadius = pillRadius
+        }
+        // Drawn by Stripe at the standard key's rounding: the system's key has a
+        // minimum width and doesn't center a narrower picture in it.
+        if type == "performance", style.cornerRadius == nil {
+            style.cornerRadius = standardRadius
         }
         button.style = style
     }
