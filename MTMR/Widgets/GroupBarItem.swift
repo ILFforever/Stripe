@@ -68,6 +68,26 @@ class GroupBarItem: CustomButtonTouchBarItem, NSTouchBarDelegate, TearDownable {
         TouchBarController.shared.showSubBar(identifiers: leftIdentifiers + [centerScrollArea] + rightIdentifiers, delegate: self)
     }
 
+    /// The folder's bar as it would show, for Settings to picture without opening
+    /// it: its items built as open() does, laid out like the main bar. The caller
+    /// tears this item down afterwards, which stops them.
+    func makePreviewView() -> NSView {
+        tearDown()
+        itemDefinitions = [:]
+        leftIdentifiers = []
+        centerIdentifiers = []
+        rightIdentifiers = []
+        loadItemDefinitions(jsonItems: jsonItems)
+        createItems()
+        let center = ScrollViewItem(identifier: centerScrollArea, items: centerIdentifiers.compactMap { items[$0] })
+        let views = leftIdentifiers.compactMap { items[$0]?.view } + [center.view]
+            + rightIdentifiers.compactMap { items[$0]?.view }
+        let stack = NSStackView(views: views)
+        stack.orientation = .horizontal
+        stack.spacing = 8
+        return stack
+    }
+
     func touchBar(_: NSTouchBar, makeItemForIdentifier identifier: NSTouchBarItem.Identifier) -> NSTouchBarItem? {
         if identifier == centerScrollArea {
             return scrollArea

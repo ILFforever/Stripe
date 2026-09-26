@@ -150,6 +150,11 @@ class PopoverBarItem: CustomButtonTouchBarItem, NSTouchBarDelegate, TearDownable
         return item
     }
 
+    /// The expanded bar as it would show, for Settings to picture without opening it.
+    func makePreviewView() -> NSView? {
+        makeExpandedItem().view
+    }
+
     private func scheduleAutoClose() {
         autoCloseTimer?.invalidate()
         guard let autoClose = autoClose else { return }

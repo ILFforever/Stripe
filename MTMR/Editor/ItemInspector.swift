@@ -6,6 +6,7 @@
 //  sections. Section open/closed state is remembered across items.
 //
 
+import Combine
 import SwiftUI
 
 struct ItemInspector: View {
@@ -1018,6 +1019,10 @@ struct ContainerItemsEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             let children = container.children ?? []
+            if ["popover", "group"].contains(container.type), !children.isEmpty {
+                OpenedBarPreview(container: container)
+                Divider().opacity(0.5)
+            }
             if children.isEmpty {
                 Text(emptyMessage)
                     .foregroundColor(.secondary)
@@ -1069,6 +1074,47 @@ struct ContainerItemsEditor: View {
         guard let document = container.document else { return }
         let item = ItemCatalog.newItem(type, align: "center", document: document)
         document.add(item, to: container)
+    }
+}
+
+/// What a folder or popover opens into: a picture of that bar at its real size,
+/// scaled to fit, taken from copies of its items built off the bar.
+private struct OpenedBarPreview: View {
+    @ObservedObject var container: EditorItem
+    @StateObject private var model = ContainerPreviewModel()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(container.type == "popover" ? "What it expands into" : "What it opens")
+                .foregroundColor(.secondary)
+            Group {
+                if let image = model.image {
+                    Image(nsImage: image)
+                        .resizable()
+                        .interpolation(.high)
+                        .aspectRatio(contentMode: .fit)
+                } else {
+                    // Holds the bar's shape while the first picture is taken.
+                    Color.black.aspectRatio(1004 / ItemStyle.barHeight, contentMode: .fit)
+                }
+            }
+            .padding(5)
+            .background(RoundedRectangle(cornerRadius: EditorStyle.barRadius).fill(Color.black))
+            .help("The bar it opens, scaled to fit")
+        }
+        .padding(.vertical, 8)
+        .onAppear { model.build(container) }
+        // Rebuilt after edits (including to its items), once they settle.
+        .onReceive(documentChanges) { _ in model.build(container) }
+        .onDisappear { model.stop() }
+    }
+
+    private var documentChanges: AnyPublisher<Void, Never> {
+        guard let document = container.document else { return Empty().eraseToAnyPublisher() }
+        return document.objectWillChange
+            .debounce(for: .milliseconds(400), scheduler: RunLoop.main)
+            .map { _ in () }
+            .eraseToAnyPublisher()
     }
 }
 
