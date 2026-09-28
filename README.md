@@ -4,13 +4,29 @@
 The next evolution of <a href="https://github.com/Toxblh/MTMR">MTMR</a>: design your bar in a live editor, with glass keys, full-bar dashboards and haptics you can feel.</p>
 
 <p align="center">
+<img src="https://img.shields.io/badge/status-alpha-orange.svg" alt="status: alpha">
 <img src="https://img.shields.io/github/license/ILFforever/Stripe.svg" alt="license">
 <img src="https://img.shields.io/badge/required-macOS%2012-blue.svg" alt="minimal system requirements">
 </p>
 
-![Stripe on the Touch Bar: brightness and volume groups, live CPU/GPU and network readouts, a folder, battery, media controls and the clock](Resources/screenshots/bar.png)
+![Stripe on the Touch Bar with the Aurora preset: glass keys on a purple-to-blue gradient, brightness and volume groups, live CPU/GPU and network readouts, a folder, battery, media controls and the clock](Resources/screenshots/bar.png)
+
+> **Stripe is in alpha.** It's usable every day and most things work, but expect rough edges, and the preset format may still change between builds. Keep a copy of your preset, and please [open an issue](https://github.com/ILFforever/Stripe/issues) when something breaks.
 
 MTMR proved the Touch Bar could be yours: any button, any script, any layout, in one JSON file. Stripe keeps all of that, and every MTMR preset still loads. Then it adds what MTMR never had: a visual editor, a look that matches Apple's own controls, and widgets that turn the whole bar into a dashboard when you need one.
+
+## One app, any bar
+
+![Five bars: Aurora (gradient, glass keys), Grid (grid pattern, blue-tinted glass, keys in groups), Dusk (gradient, rose-tinted glass), Lagoon (honeycomb pattern, teal-tinted glass, now playing) and Carbon (carbon pattern, standard keys, graph readouts)](Resources/screenshots/bars.png)
+
+Every bar above is a single preset file in [`Resources/presets`](Resources/presets). To try one, copy it over your preset (back yours up first):
+
+```sh
+cp ~/Library/Application\ Support/Stripe/items.json ~/items.backup.json
+cp Resources/presets/grid.json ~/Library/Application\ Support/Stripe/items.json
+```
+
+Stripe reloads the bar as soon as the file changes.
 
 ## Design it live, not in JSON
 
@@ -25,8 +41,8 @@ MTMR proved the Touch Bar could be yours: any button, any script, any layout, in
 
 ![Theme settings: Standard or Glass keys, in Subtle, Balanced or Strong](Resources/screenshots/settings-theme.png)
 
-- **Glass keys.** Frosted keys with a thin, top-lit rim, in Subtle, Balanced or Strong, with an optional tint. Or keep Apple's standard keys.
-- **Bar backgrounds.** A color, a gradient, a pattern or a looping video behind every key. Videos pause on battery if you want.
+- **Glass keys.** Frosted keys with a thin, top-lit rim, in Subtle, Balanced or Strong, tinted any color for the whole bar or per key. Or keep Apple's standard keys.
+- **Bar backgrounds.** A color, a gradient, one of 14 patterns (grid, carbon, honeycomb…) or a looping video behind every key. Videos pause on battery if you want.
 - **Every key, your way.** SF Symbols, font weight, text and icon colors, and corners from square to pill on one slider. Each item can switch between the Stripe look and MTMR classic.
 - **Key groups.** Brightness, Keyboard Light, Volume and Media Controls come as ready-made groups: keys on one shared background with dividers, like Apple's own.
 
@@ -34,15 +50,25 @@ MTMR proved the Touch Bar could be yours: any button, any script, any layout, in
 
 ## Full-bar dashboards
 
-![The Battery page (charge, last 12 hours, charger wattage, time since plugged in, top apps by power) and the Performance page (CPU cores, a 2-minute CPU and GPU graph, GPU, memory pressure and top apps)](Resources/screenshots/pages.png)
+![The Battery page (charge, last 12 hours, charger wattage, time since plugged in, top apps by power) and the Performance page (CPU cores, a 2-minute CPU and GPU graph, GPU, memory pressure and top apps), both on the Aurora background](Resources/screenshots/pages.png)
 
 - **Battery.** Hold the battery item to open a page with charge and time to full, a 12-hour history, charger wattage, time since you plugged in, and which apps are using the most power.
 - **CPU and GPU.** Live readouts on the bar. Tap one for a page with per-core load, a two-minute graph, GPU usage, memory pressure and the busiest apps, or hold it to open Activity Monitor. You pick which tiles show.
 - **Network speed**, **now playing**, **weather**, **calendar**, **pomodoro** and the rest of MTMR's widgets are all still here.
 
+## Keys that run things
+
+![The Grid bar's command keys (Screenshot, Lock, Terminal, Deploy) and toggles in groups, and a folder of command keys on the Aurora bar, each with the preset keys that make it](Resources/screenshots/commands.png)
+
+- **Any key runs a command.** A shell script, an AppleScript, a URL or a key press, on a single, double or triple tap, or a hold.
+- **Hold for anything risky.** A `longTap` action only fires once you've held long enough, with a strong buzz so you know it did.
+- **Scripts as live titles.** A script's output becomes the key's text, refreshed on the interval you pick.
+- **Keys that light up.** `activeWhen` turns a key on while a command succeeds, with its own title, icon and color.
+- **Groups of commands.** Put related keys on one shared background with dividers, the way Apple groups brightness and volume.
+
 ## Folders and popovers
 
-![A volume popover with a slider opened in place, and a folder of pill buttons: Awake, Hold to sleep, Hold: restart Wi-Fi](Resources/screenshots/popover-folder.png)
+![A volume popover with a slider opened in place, and a folder of keys: Stay awake, Hold to sleep, Restart Wi-Fi, Empty Trash](Resources/screenshots/popover-folder.png)
 
 - **Popovers** open their controls in place, on the same side as the button. Press, hold and slide to change the volume without even opening one.
 - **Folders** hold a whole second bar behind one key: scripts, toggles, anything.
@@ -69,7 +95,7 @@ The full rules for every item, its states and which settings apply are in [ITEMS
 
 ## Installation
 
-There are no prebuilt releases yet, so build from source (details in [DEVELOPING.md](DEVELOPING.md)):
+Stripe is in alpha and there are no prebuilt releases yet, so build from source (details in [DEVELOPING.md](DEVELOPING.md)):
 
 ```sh
 xcode-select --install                   # Command Line Tools, if you don't have them

@@ -1,0 +1,45 @@
+{
+  "stripe": 1,
+  "bar": {
+    "background": {
+      "pattern": "carbon"
+    },
+    "glassKeys": false
+  },
+  "items": [
+    {
+      "type": "escape",
+      "align": "left"
+    },
+    {
+      "type": "performance",
+      "bordered": false,
+      "design": "graph",
+      "colors": "neon"
+    },
+    {
+      "type": "cpu",
+      "bordered": false
+    },
+    {
+      "type": "network",
+      "bordered": false,
+      "flip": true
+    },
+    {
+      "type": "battery",
+      "align": "right",
+      "showIcon": true,
+      "showPercentage": true,
+      "percentInside": true
+    },
+    {
+      "type": "timeButton",
+      "align": "right",
+      "bordered": false,
+      "fontWeight": "semibold",
+      "monospacedDigits": true,
+      "formatTemplate": "EEE d MMM  HH:mm"
+    }
+  ]
+}
