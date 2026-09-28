@@ -1,0 +1,193 @@
+{
+  "stripe": 1,
+  "bar": {
+    "background": {
+      "gradient": [
+        "#5A1A73",
+        "#0D3366"
+      ]
+    },
+    "glassKeys": true,
+    "glassStyle": "balanced"
+  },
+  "items": [
+    {
+      "type": "escape",
+      "align": "left"
+    },
+    {
+      "type": "cluster",
+      "cornerRadius": 8,
+      "dividers": true,
+      "itemWidth": 44,
+      "items": [
+        {
+          "type": "brightnessDown"
+        },
+        {
+          "type": "brightnessUp"
+        }
+      ]
+    },
+    {
+      "type": "cluster",
+      "cornerRadius": 8,
+      "dividers": true,
+      "itemWidth": 44,
+      "items": [
+        {
+          "type": "volumeDown"
+        },
+        {
+          "type": "volumeUp"
+        }
+      ]
+    },
+    {
+      "type": "performance",
+      "bordered": false,
+      "design": "chip",
+      "colors": "sky"
+    },
+    {
+      "type": "network",
+      "bordered": false,
+      "flip": true
+    },
+    {
+      "type": "group",
+      "align": "right",
+      "symbol": "folder.fill",
+      "items": [
+        {
+          "type": "close",
+          "width": 44,
+          "symbol": "chevron.left",
+          "bordered": false
+        },
+        {
+          "type": "staticButton",
+          "symbol": "cup.and.saucer.fill",
+          "title": "Stay awake",
+          "cornerRadius": 8,
+          "activeWhen": {
+            "script": "pgrep -q caffeinate"
+          },
+          "activeBackground": "#1F6E43",
+          "activeTitle": "Awake",
+          "actions": [
+            {
+              "trigger": "singleTap",
+              "action": "shellScript",
+              "executablePath": "/bin/sh",
+              "shellArguments": [
+                "-c",
+                "pkill caffeinate || (caffeinate -di &)"
+              ]
+            }
+          ]
+        },
+        {
+          "type": "staticButton",
+          "symbol": "moon.zzz.fill",
+          "title": "Hold to sleep",
+          "cornerRadius": 8,
+          "actions": [
+            {
+              "trigger": "longTap",
+              "action": "shellScript",
+              "executablePath": "/bin/sh",
+              "shellArguments": [
+                "-c",
+                "pmset sleepnow"
+              ]
+            }
+          ]
+        },
+        {
+          "type": "staticButton",
+          "symbol": "wifi",
+          "title": "Restart Wi-Fi",
+          "cornerRadius": 8,
+          "actions": [
+            {
+              "trigger": "longTap",
+              "action": "shellScript",
+              "executablePath": "/bin/sh",
+              "shellArguments": [
+                "-c",
+                "networksetup -setairportpower en0 off; networksetup -setairportpower en0 on"
+              ]
+            }
+          ]
+        },
+        {
+          "type": "staticButton",
+          "symbol": "trash",
+          "title": "Empty Trash",
+          "cornerRadius": 8,
+          "actions": [
+            {
+              "trigger": "longTap",
+              "action": "appleScript",
+              "actionAppleScript": {
+                "inline": "tell application \"Finder\" to empty trash"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "battery",
+      "align": "right",
+      "showIcon": true,
+      "showPercentage": true
+    },
+    {
+      "type": "cluster",
+      "align": "right",
+      "cornerRadius": 8,
+      "dividers": true,
+      "itemWidth": 40,
+      "items": [
+        {
+          "type": "previous"
+        },
+        {
+          "type": "play",
+          "bordered": false
+        },
+        {
+          "type": "next"
+        }
+      ]
+    },
+    {
+      "type": "popover",
+      "align": "right",
+      "width": 44,
+      "symbol": "speaker.wave.2.fill",
+      "pressAndHold": true,
+      "liveIcon": true,
+      "items": [
+        {
+          "type": "volume",
+          "width": 260
+        },
+        {
+          "type": "mute",
+          "width": 44
+        }
+      ]
+    },
+    {
+      "type": "timeButton",
+      "align": "right",
+      "bordered": false,
+      "fontWeight": "medium",
+      "monospacedDigits": true,
+      "formatTemplate": "HH:mm"
+    }
+  ]
+}

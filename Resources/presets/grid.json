@@ -1,0 +1,144 @@
+{
+  "stripe": 1,
+  "bar": {
+    "background": {
+      "pattern": "grid",
+      "colors": [
+        "#10151F",
+        "#3A4E75"
+      ]
+    },
+    "glassKeys": true,
+    "glassStyle": "balanced",
+    "glassTint": "#3D7BFF"
+  },
+  "items": [
+    {
+      "type": "escape",
+      "align": "left"
+    },
+    {
+      "type": "cluster",
+      "cornerRadius": 8,
+      "dividers": true,
+      "itemWidth": 52,
+      "items": [
+        {
+          "type": "staticButton",
+          "symbol": "camera.viewfinder",
+          "title": "",
+          "actions": [
+            {
+              "trigger": "singleTap",
+              "action": "shellScript",
+              "executablePath": "/bin/sh",
+              "shellArguments": [
+                "-c",
+                "screencapture -ic"
+              ]
+            }
+          ]
+        },
+        {
+          "type": "staticButton",
+          "symbol": "lock.fill",
+          "title": "",
+          "hapticStrength": "strong",
+          "actions": [
+            {
+              "trigger": "longTap",
+              "action": "shellScript",
+              "executablePath": "/bin/sh",
+              "shellArguments": [
+                "-c",
+                "pmset displaysleepnow"
+              ]
+            }
+          ]
+        },
+        {
+          "type": "staticButton",
+          "symbol": "terminal.fill",
+          "title": "",
+          "actions": [
+            {
+              "trigger": "singleTap",
+              "action": "shellScript",
+              "executablePath": "/bin/sh",
+              "shellArguments": [
+                "-c",
+                "open -a Terminal"
+              ]
+            }
+          ]
+        },
+        {
+          "type": "staticButton",
+          "symbol": "shippingbox.fill",
+          "title": "",
+          "iconColor": "#34C759",
+          "actions": [
+            {
+              "trigger": "singleTap",
+              "action": "shellScript",
+              "executablePath": "/bin/sh",
+              "shellArguments": [
+                "-c",
+                "say Deployed"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "shellScriptTitledButton",
+      "symbol": "internaldrive",
+      "bordered": false,
+      "fontSize": 14,
+      "refreshInterval": 60,
+      "source": {
+        "inline": "df -h / | awk 'NR==2{sub(/Gi$/,\"\",$4); print $4\" GB\"}'"
+      }
+    },
+    {
+      "type": "network",
+      "bordered": false,
+      "flip": true
+    },
+    {
+      "type": "cluster",
+      "align": "right",
+      "cornerRadius": 8,
+      "dividers": true,
+      "itemWidth": 48,
+      "items": [
+        {
+          "type": "dnd",
+          "activeIconColor": "#A78BFA"
+        },
+        {
+          "type": "nightShift",
+          "activeIconColor": "#FFB340"
+        },
+        {
+          "type": "darkMode"
+        }
+      ]
+    },
+    {
+      "type": "battery",
+      "align": "right",
+      "showIcon": true,
+      "showPercentage": true
+    },
+    {
+      "type": "timeButton",
+      "align": "right",
+      "bordered": false,
+      "fontWeight": "medium",
+      "monospacedDigits": true,
+      "formatTemplate": "HH:mm"
+    }
+  ]
+}

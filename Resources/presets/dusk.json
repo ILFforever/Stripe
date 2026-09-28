@@ -1,0 +1,96 @@
+{
+  "stripe": 1,
+  "bar": {
+    "background": {
+      "gradient": [
+        "#1A2440",
+        "#3A1C4A"
+      ]
+    },
+    "glassKeys": true,
+    "glassStyle": "strong",
+    "glassTint": "#FF5C8A"
+  },
+  "items": [
+    {
+      "type": "escape",
+      "align": "left"
+    },
+    {
+      "type": "cluster",
+      "cornerRadius": 8,
+      "dividers": true,
+      "itemWidth": 44,
+      "items": [
+        {
+          "type": "illuminationDown"
+        },
+        {
+          "type": "illuminationUp"
+        }
+      ]
+    },
+    {
+      "type": "cluster",
+      "cornerRadius": 8,
+      "dividers": true,
+      "itemWidth": 44,
+      "items": [
+        {
+          "type": "volumeDown"
+        },
+        {
+          "type": "volumeUp"
+        }
+      ]
+    },
+    {
+      "type": "performance",
+      "bordered": false,
+      "design": "minimal",
+      "colors": "vivid"
+    },
+    {
+      "type": "network",
+      "bordered": false,
+      "flip": true
+    },
+    {
+      "type": "pomodoro",
+      "align": "right"
+    },
+    {
+      "type": "battery",
+      "align": "right",
+      "showIcon": true,
+      "showPercentage": true,
+      "percentInside": true
+    },
+    {
+      "type": "popover",
+      "align": "right",
+      "width": 44,
+      "symbol": "speaker.wave.2.fill",
+      "pressAndHold": true,
+      "liveIcon": true,
+      "items": [
+        {
+          "type": "volume",
+          "width": 260
+        },
+        {
+          "type": "mute",
+          "width": 44
+        }
+      ]
+    },
+    {
+      "type": "timeButton",
+      "align": "right",
+      "bordered": false,
+      "fontWeight": "medium",
+      "monospacedDigits": true,
+      "formatTemplate": "HH:mm"
+    }
+  ]
+}
