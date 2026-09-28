@@ -124,7 +124,7 @@ class HapticFeedback {
 // MARK: - Per-item haptics (Stripe)
 
 /// How an item buzzes, from its "haptic", "hapticStrength" and "hapticPattern"
-/// keys. The default is MTMR's: a click on press and a lighter tick on release.
+/// keys. The default is a medium buzz on press and a soft tick on release.
 struct HapticStyle: Equatable {
     enum When: String {
         case both, press, release, off
@@ -147,8 +147,10 @@ struct HapticStyle: Equatable {
     }
 
     var when = When.both
-    /// Nil: the default click on press and tick on release.
+    /// As set; nil when unset. Buttons press at `pressStrength`, sliders tick at `detentStrength`.
     var strength: Strength?
+    var pressStrength: Strength { strength ?? .medium }
+    var detentStrength: Strength { strength ?? .light }
     /// Taps per buzz: 1, 2 or 3.
     var repeats = 1
     /// For toggles: a buzz for turning on and one for turning off, instead of the release tick.
@@ -191,8 +193,8 @@ struct HapticStyle: Equatable {
         switch (phase, when) {
         case (_, .off), (.press, .release), (.release, .press): return nil
         case (.hold, _): return .strong // a press held long enough to act
-        case (.press, _): return strength?.type ?? .click
-        case (.release, _): return strength?.type ?? .back
+        case (.press, _): return pressStrength.type
+        case (.release, _): return .back
         }
     }
 }
@@ -234,7 +236,7 @@ final class SliderDetents {
         defer { lastMark = mark }
         guard !newDrag, let last = lastMark, mark != last else { return }
         let atEnd = value <= 0.001 || value >= 0.999
-        HapticFeedback.instance.tap(type: atEnd ? .strong : (style.strength?.type ?? .weak))
+        HapticFeedback.instance.tap(type: atEnd ? .strong : style.detentStrength.type)
     }
 
 }

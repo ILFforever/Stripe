@@ -119,9 +119,9 @@ Each applies only while the item is on. Anything left unset looks as it does whe
 ### Haptics
 All of these are subject to the Haptic Feedback switch in Stripe's menu-bar menu.
 - `haptic`: when to buzz. `both` (default), `press`, `release` or `off`.
-  - Default feel: a click on press and a lighter tick on release.
+  - Default feel: a medium buzz on press and a soft tick on release.
   - A press held long enough to act (press-and-hold actions) always gives a strong buzz unless `off`.
-- `hapticStrength`: `light`, `medium` or `strong`. Unset keeps the default click and tick.
+- `hapticStrength`: `light`, `medium` (default) or `strong`, for the press. The release is always a soft tick.
 - `hapticPattern`: `single`, `double` or `triple`.
 - **On/off feel** (toggles, and items with `activeWhen`): the release buzz tells you what the tap did.
   - `hapticToggle: false` turns it off.
@@ -130,9 +130,14 @@ All of these are subject to the Haptic Feedback switch in Stripe's menu-bar menu
   - It only plays when `haptic` includes release, and only if the state actually changes. It waits 1.5s for a toggle, or 4s for an `activeWhen` rule, since scripts can be slow.
 - **Detents** (sliders): a tick at each mark while you drag, and a firm one at either end.
   - `hapticStep`: the spacing in percent, default 10.
-  - `hapticStrength`: the tick's strength.
+  - `hapticStrength`: the tick's strength. Default: light.
   - `haptic: "off"`: no detents.
   - Only your own dragging and press-and-hold sliding tick; volume-key changes don't.
+- **Hold to repeat** (brightness and volume up/down keys, and buttons whose tap sends those `hidKey`s): holding the key keeps stepping the level after 0.4s.
+  - `holdStep`: each step in percent, default 5.
+  - `holdRepeat: false`: a hold does nothing extra; only the tap steps.
+  - Each step buzzes on a ramp: holding up goes light, medium, then strong; holding down goes strong, medium, then light; a new band every 4 steps. `haptic: "off"` silences it.
+  - The system's brightness or volume overlay stays up while you hold. A key with a `longTap` action doesn't repeat.
 
 ### Actions
 - `actions`: a list of `{ "trigger", "action", … }`.

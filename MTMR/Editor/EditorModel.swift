@@ -536,6 +536,8 @@ struct ItemTypeInfo {
         }
     }
 
+    /// Brightness and volume keys, which keep stepping while held.
+    var repeatsWhileHeld: Bool { ["brightnessUp", "brightnessDown", "volumeUp", "volumeDown"].contains(type) }
     /// Volume and brightness sliders, which tick as they're dragged.
     var isSlider: Bool { type == "volume" || type == "brightness" }
     /// What "active" means for items that know their own on/off state.
@@ -701,7 +703,7 @@ enum ItemCatalog {
     /// Keys side by side in one group, split by dividers: a ready-made group.
     private static func group(_ id: String, _ name: String, _ symbol: String, _ types: [String], category: String) -> ItemTypeInfo {
         ItemTypeInfo(type: templatePrefix + id, name: name, symbol: symbol, category: category, defaults: [:], fields: [],
-                     template: ["type": .string("cluster"), "dividers": .bool(true), "itemWidth": .number(44), "spacing": .number(12), "cornerRadius": .number(8),
+                     template: ["type": .string("cluster"), "dividers": .bool(true), "itemWidth": .number(44), "cornerRadius": .number(8),
                                 "items": .array(types.map { .object(["type": .string($0)]) })])
     }
 

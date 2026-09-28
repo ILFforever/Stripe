@@ -58,7 +58,10 @@ class CustomButtonTouchBarItem: NSCustomTouchBarItem, NSGestureRecognizerDelegat
         multiClick.delegate = self
         multiClick.isDoubleClickEnabled = false
         multiClick.isTripleClickEnabled = false
-        multiClick.onTouch = { [weak self] down in self?.isPressed = down }
+        multiClick.onTouch = { [weak self] down in
+            self?.isPressed = down
+            self?.holdTouchChanged(down)
+        }
         multiClick.handlesReleaseHaptic = { [weak self] in self?.armToggleFeel() ?? false }
 
         reinstallButton()
@@ -127,6 +130,58 @@ class CustomButtonTouchBarItem: NSCustomTouchBarItem, NSGestureRecognizerDelegat
         guard Date() < toggleFeelArmedUntil else { return }
         toggleFeelArmedUntil = .distantPast
         HapticFeedback.instance.play(style.haptic.toggleFeel(turnedOn: isActive))
+    }
+
+    // MARK: Hold to repeat
+
+    /// Set for brightness and volume keys: holding one keeps stepping the level.
+    var holdRepeat: HoldRepeat?
+    private var holdTimer: Timer?
+    /// Whether this touch stepped by being held, so letting go isn't also a tap.
+    private var steppedByHolding = false
+    /// Steps so far in this hold, for the haptic ramp.
+    private var holdSteps = 0
+
+    private func holdTouchChanged(_ down: Bool) {
+        holdTimer?.invalidate()
+        holdTimer = nil
+        guard down else { return }
+        steppedByHolding = false
+        holdSteps = 0
+        guard let key = holdRepeat, style.holdRepeat, !actions.contains(where: { $0.trigger == .longTap }) else { return }
+        holdTimer = CustomButtonTouchBarItem.timer(after: 0.4, repeats: false) { [weak self] in
+            self?.holdTimer = CustomButtonTouchBarItem.timer(after: 0.08, repeats: true) { [weak self] in
+                self?.holdStep(key)
+            }
+            self?.holdStep(key)
+        }
+    }
+
+    /// A timer that also fires while a finger is on the bar, when the run loop
+    /// is tracking touches and default-mode timers wait.
+    private static func timer(after interval: TimeInterval, repeats: Bool, _ block: @escaping () -> Void) -> Timer {
+        let timer = Timer(timeInterval: interval, repeats: repeats) { _ in block() }
+        RunLoop.main.add(timer, forMode: .common)
+        return timer
+    }
+
+    /// One step while held: the system overlay, and a buzz on the hold's ramp.
+    private func holdStep(_ key: HoldRepeat) {
+        steppedByHolding = true
+        guard let level = key.step(by: style.holdStep) else {
+            holdTimer?.invalidate() // at the end already
+            holdTimer = nil
+            return
+        }
+        key.showOverlay(level)
+        if style.haptic.when != .off {
+            HapticFeedback.instance.tap(type: key.strength(atStep: holdSteps).type)
+        }
+        holdSteps += 1
+    }
+
+    deinit {
+        holdTimer?.invalidate()
     }
 
     /// True while a finger is on the item; shows `style.pressedBackground`.
@@ -373,6 +428,10 @@ class CustomButtonTouchBarItem: NSCustomTouchBarItem, NSGestureRecognizerDelegat
     }
     
     @objc func handleGestureSingleTap() {
+        if steppedByHolding {
+            steppedByHolding = false
+            return
+        }
         callActions(for: .singleTap)
     }
     

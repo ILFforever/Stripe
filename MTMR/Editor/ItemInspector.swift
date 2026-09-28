@@ -196,6 +196,11 @@ struct ItemInspector: View {
             InspectorGroup(title: "Haptics", symbol: "waveform") {
                 HapticsEditor(item: item)
             }
+            if item.info.repeatsWhileHeld {
+                InspectorGroup(title: "Hold", symbol: "repeat") {
+                    HoldRepeatEditor(item: item)
+                }
+            }
         } else if item.info.isSlider {
             InspectorGroup(title: "Haptics", symbol: "waveform") {
                 SliderHapticsEditor(item: item)
@@ -1238,6 +1243,36 @@ private struct ChildRow: View {
     }
 }
 
+// MARK: - Hold to repeat
+
+/// Brightness and volume keys: whether holding one keeps stepping, and by how much.
+struct HoldRepeatEditor: View {
+    @ObservedObject var item: EditorItem
+
+    private var on: Bool { item[bool: "holdRepeat"] != false }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ToggleRow(label: "Repeat while held", help: "Holding up buzzes stronger as it goes, holding down lighter",
+                      defaultValue: true,
+                      value: Binding(get: { item[bool: "holdRepeat"] },
+                                     set: { item[bool: "holdRepeat"] = $0 == false ? false : nil }))
+            FieldRow(label: "Step") {
+                Picker("", selection: Binding(get: { Int(item[number: "holdStep"] ?? 5) },
+                                              set: { item[number: "holdStep"] = $0 == 5 ? nil : Double($0) })) {
+                    Text("1%").tag(1)
+                    Text("2%").tag(2)
+                    Text("5%").tag(5)
+                    Text("10%").tag(10)
+                }
+                .pickerStyle(.segmented).labelsHidden().fixedSize()
+            }
+            .disabled(!on)
+            .opacity(on ? 1 : 0.45)
+        }
+    }
+}
+
 // MARK: - Haptics
 
 /// When and how an item buzzes under a finger, with a button to feel it on the
@@ -1249,7 +1284,7 @@ struct HapticsEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            FieldRow(label: "Buzz on", help: when == "both" ? "A click on press, a lighter tick on release" : nil) {
+            FieldRow(label: "Buzz on", help: when == "both" ? "A buzz on press, a soft tick on release" : nil) {
                 Picker("", selection: Binding(get: { when }, set: { item[string: "haptic"] = $0 == "both" ? nil : $0 })) {
                     Text("Press and release").tag("both")
                     Text("Press").tag("press")
@@ -1260,9 +1295,8 @@ struct HapticsEditor: View {
             }
             Group {
                 FieldRow(label: "Strength") {
-                    Picker("", selection: Binding(get: { item[string: "hapticStrength"] ?? "" },
-                                                  set: { item[string: "hapticStrength"] = $0 })) {
-                        Text("Default").tag("")
+                    Picker("", selection: Binding(get: { item[string: "hapticStrength"] ?? "medium" },
+                                                  set: { item[string: "hapticStrength"] = $0 == "medium" ? nil : $0 })) {
                         Text("Light").tag("light")
                         Text("Medium").tag("medium")
                         Text("Strong").tag("strong")
@@ -1378,9 +1412,8 @@ struct SliderHapticsEditor: View {
                     .pickerStyle(.segmented).labelsHidden().fixedSize()
                 }
                 FieldRow(label: "Strength") {
-                    Picker("", selection: Binding(get: { item[string: "hapticStrength"] ?? "" },
-                                                  set: { item[string: "hapticStrength"] = $0 })) {
-                        Text("Default").tag("")
+                    Picker("", selection: Binding(get: { item[string: "hapticStrength"] ?? "light" },
+                                                  set: { item[string: "hapticStrength"] = $0 == "light" ? nil : $0 })) {
                         Text("Light").tag("light")
                         Text("Medium").tag("medium")
                         Text("Strong").tag("strong")

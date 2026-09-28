@@ -17,6 +17,7 @@
 //    "hapticToggle": false          // toggles: no on/off feel;  "hapticStep": 5   // sliders: detent every 5%
 //    "hapticOnStrength": "strong", "hapticOnPattern": "double",   // toggles: the buzz for turning on…
 //    "hapticOffStrength": "light", "hapticOffPattern": "single",  // …and for turning off
+//    "holdRepeat": false, "holdStep": 10   // brightness/volume keys: no repeat while held; step 10% when on
 //
 
 import AppKit
@@ -39,6 +40,10 @@ struct ItemStyle {
     var activeTextColor: NSColor?
     var activeTitle: String?
     var haptic = HapticStyle()
+    /// Brightness and volume keys: keep stepping while held ("holdRepeat", on unless false).
+    var holdRepeat = true
+    /// How far each held step moves, 0...1 ("holdStep" in percent, default 5).
+    var holdStep = 0.05
 
     static let barHeight: CGFloat = 30
     static let defaultFontSize: CGFloat = 15
@@ -112,6 +117,7 @@ extension ItemStyle: Decodable {
         case activeSymbol, activeIconColor, activeTextColor, activeTitle
         case haptic, hapticStrength, hapticPattern, hapticToggle, hapticStep
         case hapticOnStrength, hapticOnPattern, hapticOffStrength, hapticOffPattern
+        case holdRepeat, holdStep
     }
 
     init(from decoder: Decoder) throws {
@@ -139,6 +145,8 @@ extension ItemStyle: Decodable {
                              onPattern: try c.decodeIfPresent(String.self, forKey: .hapticOnPattern),
                              offStrength: try c.decodeIfPresent(String.self, forKey: .hapticOffStrength),
                              offPattern: try c.decodeIfPresent(String.self, forKey: .hapticOffPattern))
+        holdRepeat = try c.decodeIfPresent(Bool.self, forKey: .holdRepeat) ?? true
+        if let step = try c.decodeIfPresent(Double.self, forKey: .holdStep), step >= 1, step <= 50 { holdStep = step / 100 }
         if try c.decodeIfPresent(String.self, forKey: .style) == "pill", cornerRadius == nil {
             cornerRadius = ItemStyle.barHeight / 2
         }

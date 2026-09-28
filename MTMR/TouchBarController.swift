@@ -629,6 +629,10 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
             for action in item.actions {
                 touchBarItem.actions.append(ItemAction(trigger: action.trigger, self.closure(for: action)))
             }
+            // Brightness and volume keys keep stepping while held.
+            for action in item.actions where action.trigger == .singleTap {
+                if case let .hidKey(keycode) = action.value { touchBarItem.holdRepeat = HoldRepeat(hidKey: keycode) }
+            }
         }
         if case let .bordered(bordered)? = item.additionalParameters[.bordered], let item = barItem as? CustomButtonTouchBarItem {
             item.isBordered = bordered

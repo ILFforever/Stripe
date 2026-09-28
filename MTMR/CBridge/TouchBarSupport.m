@@ -8,6 +8,9 @@
 
 #import "TouchBarSupport.h"
 #import <IOKit/hidsystem/ev_keymap.h>
+#import <CoreGraphics/CoreGraphics.h>
+#import <objc/message.h>
+#include <dlfcn.h>
 
 @implementation MediaKeys
 
@@ -54,6 +57,23 @@ static void HIDReleaseAuxKey( const UInt8 auxKeyCode )
 
 + (void)HIDPostAuxKey: (UInt8)keyCode {
     HIDReleaseAuxKey(keyCode);
+}
+
++ (void)showLevelOverlay:(long long)image level:(double)level
+{
+    static Class manager;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        dlopen("/System/Library/PrivateFrameworks/OSD.framework/OSD", RTLD_LAZY);
+        manager = NSClassFromString(@"OSDManager");
+    });
+    SEL show = NSSelectorFromString(@"showImage:onDisplayID:priority:msecUntilFade:filledChiclets:totalChiclets:locked:");
+    id shared = [manager performSelector:NSSelectorFromString(@"sharedManager")];
+    if (![shared respondsToSelector:show]) return;
+    unsigned int filled = (unsigned int)lround(fmax(0, fmin(1, level)) * 64);
+    void (*send)(id, SEL, long long, CGDirectDisplayID, unsigned int, unsigned int, unsigned int, unsigned int, BOOL)
+        = (void *)objc_msgSend;
+    send(shared, show, image, CGMainDisplayID(), 0x1f4, 1500, filled, 64, NO);
 }
 
 @end
