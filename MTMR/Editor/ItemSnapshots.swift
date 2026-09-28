@@ -29,6 +29,12 @@ final class BarMetrics: ObservableObject {
     static let spacing: CGFloat = 8
     /// Between the center section's items.
     static let centerSpacing: CGFloat = 1
+    /// Extra room before a center item that's a group or follows one, so groups
+    /// keep the edges' spacing from their neighbors (as ScrollViewItem does).
+    static func centerGap(before index: Int, in items: [EditorItem]) -> CGFloat {
+        guard index > 0 else { return 0 }
+        return items[index].type == "cluster" || items[index - 1].type == "cluster" ? spacing - centerSpacing : 0
+    }
     /// The editor's black edge around the app region: room for the section and
     /// selection outlines.
     static let bezel: CGFloat = 7

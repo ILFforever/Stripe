@@ -232,6 +232,7 @@ struct BarCanvas: View {
                             document.holdsSaves = true
                             return DragPayload.move(id: item.id).provider
                         }
+                        .padding(.leading, align == "center" ? BarMetrics.centerGap(before: index, in: items) : 0)
                 }
                 if let slot = slot, slot >= items.count { dropPlaceholder }
             }
