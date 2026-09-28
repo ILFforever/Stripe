@@ -12,7 +12,24 @@ import SwiftUI
 /// UI state for the editor window, kept outside the views (see the note on
 /// `State` in EditorFields.swift).
 final class EditorSession: ObservableObject {
-    @Published var selection: UUID?
+    @Published var selection: UUID? {
+        didSet { if selection != nil, barPanel != nil { barPanel = nil } }
+    }
+
+    /// Settings for the whole bar, shown in place of an item's.
+    enum BarPanel {
+        /// What's behind the items.
+        case background
+        /// How the whole bar looks: its keys (and later premade themes, linked styles).
+        case theme
+    }
+
+    @Published var barPanel: BarPanel? {
+        didSet { if barPanel != nil, selection != nil { selection = nil } }
+    }
+    /// Where the bar is in the window (top-left origin), so a press on its empty
+    /// space can select it (see SettingsWindowController).
+    var barFrame: CGRect = .zero
     @Published var expanded = Set<UUID>()
     /// What's being dragged, recorded when the drag starts (see BarCanvas.swift).
     @Published var dragging: DragPayload?
@@ -99,17 +116,21 @@ struct SettingsView: View {
     private var leftPane: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                SearchField(placeholder: session.leftPane == "library" ? "Search items" : "Search your bar",
+                SearchField(placeholder: session.leftPane == "library" ? "Search items"
+                                : session.leftPane == "bars" ? "Search bars" : "Search your bar",
                             text: $session.search)
                 PaneToggle(selection: $session.leftPane, options: [
                     ("library", "square.grid.2x2", "Library: every item you can add"),
                     ("outline", "list.bullet", "Outline: the items on your bar"),
+                    ("bars", "rectangle.stack", "Bars: the main bar, and bars for particular apps"),
                 ])
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             if session.leftPane == "library" {
                 ItemLibrary(document: document, session: session, snapshots: snapshots)
+            } else if session.leftPane == "bars" {
+                BarsList(document: document, session: session)
             } else {
                 sidebar
             }
@@ -118,11 +139,29 @@ struct SettingsView: View {
 
     // MARK: Header
 
-    /// Lives in the (transparent) title bar: preset on the left after the window
-    /// buttons, then any save error, undo/redo and the file button on the right.
+    /// Lives in the (transparent) title bar: which bar is being edited on the
+    /// left after the window buttons, then any save error, the Bar button,
+    /// undo/redo and a menu of the rest on the right. Bars are picked in the
+    /// left pane's Bars tab.
+    /// A header button for one of the bar-wide panels; blue while it's open.
+    private func panelButton(_ panel: EditorSession.BarPanel, _ title: String, _ symbol: String, _ help: String) -> some View {
+        let open = session.barPanel == panel
+        return Button(action: { session.barPanel = open ? nil : panel }) {
+            Label(title, systemImage: symbol)
+                .font(.system(size: 12, weight: .medium))
+                .padding(.horizontal, 8).padding(.vertical, 3)
+                .foregroundColor(open ? .white : .primary)
+                .background(RoundedRectangle(cornerRadius: 6).fill(open ? Color.accentColor : Color.secondary.opacity(0.15)))
+        }
+        .help(help)
+    }
+
     private var header: some View {
         HStack(spacing: 10) {
-            presetMenu
+            Text(document.displayName)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(.secondary)
+                .help("The bar you're editing. Switch bars in the left pane's Bars tab.")
             Spacer()
             // Edits show on the bar straight away, so only problems need a message.
             if let error = document.loadError {
@@ -131,6 +170,11 @@ struct SettingsView: View {
                     .font(.callout)
                     .lineLimit(1)
             }
+            HStack(spacing: 6) {
+                panelButton(.background, "Background", "photo", "What's behind the items: a color, gradient, pattern or video")
+                panelButton(.theme, "Theme", "paintpalette", "How the whole bar looks: standard or glass keys")
+            }
+            Divider().frame(height: 16)
             HStack(spacing: 2) {
                 Button(action: document.undo) { Image(systemName: "arrow.uturn.backward") }
                     .disabled(!document.canUndo)
@@ -139,45 +183,24 @@ struct SettingsView: View {
                     .disabled(!document.canRedo)
                     .help("Redo")
             }
-            Button(action: openInEditor) { Image(systemName: "doc.text") }
-                .help("Open the preset file in a text editor")
+            Menu {
+                Button("Open Preset File in Text Editor", action: openInEditor)
+                Button("Show Preset in Finder") {
+                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: document.path)])
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("More")
         }
         .buttonStyle(.borderless)
         .padding(.leading, 78) // clear of the window buttons
         .padding(.trailing, 12)
         .frame(height: 30)     // the standard title bar height, level with the window buttons
         .padding(.bottom, 6)
-    }
-
-    private var presetMenu: some View {
-        Menu {
-            Button("All apps") { document.open(path: standardConfigPath) }
-            let appPresets = PresetLibrary.appPresets()
-            if !appPresets.isEmpty {
-                Divider()
-                ForEach(appPresets, id: \.path) { preset in
-                    Button(preset.name) { document.open(path: preset.path) }
-                }
-            }
-            Divider()
-            Menu("New Preset for App") {
-                ForEach(PresetLibrary.runningApps(), id: \.bundleId) { app in
-                    Button(app.name) {
-                        if let path = PresetLibrary.createAppPreset(bundleId: app.bundleId) {
-                            document.open(path: path)
-                        }
-                    }
-                }
-            }
-            if document.path != standardConfigPath {
-                Button("Delete This Preset…") { deleteCurrentPreset() }
-            }
-        } label: {
-            Label(document.displayName, systemImage: document.path == standardConfigPath ? "rectangle.3.group" : "app")
-        }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
-        .help("Which bar you're editing: the main one, or one for a specific app")
     }
 
     // MARK: Sidebar
@@ -257,7 +280,11 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var detail: some View {
-        if let item = document.find(session.selection) {
+        if session.barPanel == .background {
+            BarInspector(document: document)
+        } else if session.barPanel == .theme {
+            ThemeInspector(document: document)
+        } else if let item = document.find(session.selection) {
             ItemInspector(item: item, isTopLevel: document.items.contains { $0 === item }, session: session)
                 .id(item.id) // fresh field state per item
         } else {
@@ -278,18 +305,6 @@ struct SettingsView: View {
     private func delete(_ item: EditorItem) {
         if session.selection == item.id { session.selection = nil }
         document.remove(item)
-    }
-
-    private func deleteCurrentPreset() {
-        let alert = NSAlert()
-        alert.messageText = "Delete the preset for \(document.displayName)?"
-        alert.informativeText = "That app will use the main bar again."
-        alert.addButton(withTitle: "Delete")
-        alert.addButton(withTitle: "Cancel")
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        try? FileManager.default.removeItem(atPath: document.path)
-        document.open(path: standardConfigPath)
-        TouchBarController.shared.reloadAfterEdit()
     }
 
     private func openInEditor() {

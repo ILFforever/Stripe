@@ -32,7 +32,9 @@ class ClusterBarItem: NSCustomTouchBarItem, TearDownable {
     private unowned let bar: TouchBarController
 
     /// The background of a key with no color of its own: the same gray as a key.
-    static let standardBackground = CustomButtonTouchBarItem.standardKeyColor
+    static var standardBackground: NSColor {
+        CustomButtonTouchBarItem.glass ? CustomButtonTouchBarItem.glassFill : CustomButtonTouchBarItem.standardKeyColor
+    }
     static let standardCornerRadius: CGFloat = 6
 
     init(identifier: NSTouchBarItem.Identifier, items definitions: [BarItemDefinition], options: ClusterOptions,
@@ -40,12 +42,20 @@ class ClusterBarItem: NSCustomTouchBarItem, TearDownable {
         self.bar = bar
         super.init(identifier: identifier)
 
-        var fill: NSColor? = ClusterBarItem.standardBackground
+        var fill: NSColor? = CustomButtonTouchBarItem.standardKeyColor
+        var glass = CustomButtonTouchBarItem.glass
+        if case let .glass(own)? = definition.additionalParameters[.glass] { glass = own }
         if case let .background(color)? = definition.additionalParameters[.background] {
             fill = color
+            glass = false
         } else if case .bordered(false)? = definition.additionalParameters[.bordered] {
             fill = nil
+            glass = false
         }
+        // Glass is drawn by the group itself (ClusterView.draw), frosted like a key.
+        if glass { fill = nil }
+        var tint = CustomButtonTouchBarItem.glassTint
+        if case let .glassTint(own)? = definition.additionalParameters[.glassTint] { tint = own }
         var radius = ClusterBarItem.standardCornerRadius
         if case let .style(style)? = definition.additionalParameters[.style], let custom = style.cornerRadius {
             radius = custom
@@ -72,7 +82,7 @@ class ClusterBarItem: NSCustomTouchBarItem, TearDownable {
             children.append((item, child))
         }
 
-        let clusterView = ClusterView(views: children.compactMap { $0.item.view }, fill: fill, cornerRadius: radius,
+        let clusterView = ClusterView(views: children.compactMap { $0.item.view }, fill: fill, glass: glass, glassTint: tint, cornerRadius: radius,
                                       spacing: options.spacing,
                                       padding: options.padding ?? (fill == nil ? 0 : min(radius / 2, 8)))
         clusterView.dividers = options.dividers
@@ -111,8 +121,16 @@ final class ClusterView: NSView {
         didSet { needsDisplay = true }
     }
 
-    init(views: [NSView], fill: NSColor?, cornerRadius: CGFloat, spacing: CGFloat, padding: CGFloat) {
+    private let glass: Bool
+    private let glassTint: NSColor?
+    private let cornerRadius: CGFloat
+
+    init(views: [NSView], fill: NSColor?, glass: Bool = false, glassTint: NSColor? = nil, cornerRadius: CGFloat,
+         spacing: CGFloat, padding: CGFloat) {
         stack = NSStackView(views: views)
+        self.glass = glass
+        self.glassTint = glassTint
+        self.cornerRadius = cornerRadius
         super.init(frame: .zero)
         wantsLayer = true
         layer?.backgroundColor = fill?.cgColor
@@ -137,10 +155,14 @@ final class ClusterView: NSView {
 
     override func layout() {
         super.layout()
-        if dividers { needsDisplay = true }
+        if dividers || glass { needsDisplay = true }
     }
 
     override func draw(_: NSRect) {
+        if glass {
+            GlassPainter.draw(in: self, rect: bounds, radius: cornerRadius, pressed: false, style: CustomButtonTouchBarItem.glassStyle,
+                              tint: glassTint)
+        }
         guard dividers else { return }
         let visible = stack.arrangedSubviews.filter { !$0.isHidden }
         NSColor.white.withAlphaComponent(0.25).setFill()

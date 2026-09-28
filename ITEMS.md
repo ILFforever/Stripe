@@ -6,6 +6,18 @@ the inspector only offers what applies to the selected item. The source of
 truth is the code: `MTMR/ItemsParsing.swift` (keys), `MTMR/ItemStyle.swift`
 (styling, on state, haptics), and the item classes in `MTMR/Widgets/`.
 
+## The preset file
+
+A bar is saved as a Stripe document: its own settings under `"bar"`, and its items under `"items"`.
+
+```json
+{ "stripe": 1,
+  "bar": { "background": { "gradient": ["#5A1A73", "#0D3366"] }, "glassKeys": true },
+  "items": [ … ] }
+```
+
+`"background"` is one of `{ "color": … }`, `{ "gradient": [left, right] }`, `{ "pattern": "stripes" | "grid" | "dots" | "carbon", "colors": [background, lines] }` or `{ "video": "name.mov", "pauseOnBattery": true }` (a file in Stripe's Backgrounds folder). `"glassKeys"` (Theme › Keys in Settings) draws every key as translucent glass so the background shows through; a key's own `"glass": true` or `false` (its Style tab's Background: Glass or Standard) overrides it. A plain list of items (MTMR's format) is still read, and is saved as a document from then on.
+
 ## Kinds
 
 Every item is one of these. The kind decides which of the attribute groups

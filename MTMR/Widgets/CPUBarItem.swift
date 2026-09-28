@@ -19,9 +19,11 @@ class CPUBarItem: CustomButtonTouchBarItem {
         hideUntilFirstTitle()
                 
         // Set default image
-        if self.image == nil {
+        if self.image == nil, !theme.stripeWidgets {
             self.image = #imageLiteral(resourceName: "cpu").resize(maxSize: NSSize(width: 24, height: 24));
         }
+        // Stripe: no key; the figure and a meter sit on the bar.
+        if theme.stripeWidgets { isBordered = false }
         
         // Set default action
         // Holding opens Activity Monitor's CPU tab.
@@ -46,6 +48,10 @@ class CPUBarItem: CustomButtonTouchBarItem {
                 return
             }
             
+            if self.theme.stripeWidgets {
+                self.showStripe(usage)
+                return
+            }
             // Choose color based on CPU load
             var color: NSColor? = nil
             var bgColor: NSColor? = nil
@@ -69,6 +75,24 @@ class CPUBarItem: CustomButtonTouchBarItem {
         refreshQueue?.asyncAfter(deadline: .now() + refreshInterval) { [weak self] in
             self?.refreshAndSchedule()
         }
+    }
+
+    /// Stripe's CPU: a dim chip icon, the figure, and a four-bar meter, all
+    /// turning yellow when busy and orange when heavy.
+    private func showStripe(_ usage: Double) {
+        let color = StripeReadout.loadColor(usage)
+        if style.symbol == nil {
+            let tint = usage > 30 ? color : StripeReadout.dim
+            image = NSImage(systemSymbolName: "cpu", accessibilityDescription: "CPU")?
+                .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+                    .applying(NSImage.SymbolConfiguration(paletteColors: [tint])))
+        }
+        let text = NSMutableAttributedString(attributedString: StripeReadout.figure(String(format: "%.0f%%", usage), color: color))
+        text.append(StripeReadout.gap(6))
+        text.append(StripeReadout.meter(usage, color: color))
+        attributedTitle = text
+        // Room for "100%", so the key doesn't jump as the figure changes.
+        minimumTitleWidth = ceil(StripeReadout.figure("100%").size().width) + 6 + 17
     }
 
     func defaultTapAction() {

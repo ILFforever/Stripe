@@ -10,6 +10,9 @@ class ScrollViewItem: NSCustomTouchBarItem/*, NSGestureRecognizerDelegate*/ {
         stackView.orientation = .horizontal
         let scrollView = NSScrollView(frame: CGRect(origin: .zero, size: stackView.fittingSize))
         scrollView.documentView = stackView
+        // Clear, so the bar's background shows behind the center items too.
+        scrollView.drawsBackground = false
+        scrollView.contentView.drawsBackground = false
         view = scrollView
     }
 

@@ -41,10 +41,30 @@ enum DebugHooks {
             (items.first { $0 is GroupBarItem } as? GroupBarItem)?.open()
         case "settings":
             SettingsWindowController.shared.show()
+        case let command where command.hasPrefix("background"):
+            // Trying out bar backgrounds: "background color|gradient|pattern|video <path>|none".
+            let parts = command.split(separator: " ", maxSplits: 2).map(String.init)
+            let background: BarBackground
+            switch parts.count > 1 ? parts[1] : "none" {
+            case "color": background = .color(NSColor(srgbRed: 0.10, green: 0.14, blue: 0.30, alpha: 1))
+            case "gradient": background = .gradient([NSColor(srgbRed: 0.35, green: 0.10, blue: 0.45, alpha: 1),
+                                                     NSColor(srgbRed: 0.05, green: 0.20, blue: 0.40, alpha: 1)])
+            case "pattern": background = .pattern(BarPattern(rawValue: parts.count > 2 ? parts[2] : "") ?? .stripes, [])
+            case "video" where parts.count > 2: background = .video(URL(fileURLWithPath: parts[2]))
+            default: background = .none
+            }
+            TouchBarController.shared.basicView?.background?.background = background
         case let page where page.hasPrefix("performance"):
             // "performance", "performance cpu" or "performance gpu": opens that page.
             let kind = PerformancePanelOptions.Kind(rawValue: String(page.dropFirst(12))) ?? .unified
             PerformancePanel.shared.open(options: PerformancePanelOptions(kind: kind, closeSide: .right))
+        case let pane where pane.hasPrefix("pane "):
+            // "pane library", "pane outline" or "pane bars": the left pane's tab.
+            SettingsWindowController.shared.session.leftPane = String(pane.dropFirst(5))
+        case "select bar", "select background":
+            SettingsWindowController.shared.session.barPanel = .background
+        case "select theme":
+            SettingsWindowController.shared.session.barPanel = .theme
         case let select where select.hasPrefix("select "):
             // "select 3" selects the 4th top-level item in the editor; "select 3.1"
             // the 2nd item inside it (a folder, group or popover), and so on.

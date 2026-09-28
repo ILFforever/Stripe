@@ -1,11 +1,23 @@
 import AppKit
 import Foundation
 
+/// A preset is either a plain list of items (MTMR's format, still read) or a
+/// Stripe document: { "stripe": 1, "bar": { … }, "items": [ … ] }.
 extension Data {
+    /// The items as JSON, and the bar's settings.
+    func presetDocument() -> (items: Data, bar: BarSettings)? {
+        guard let json = utf8string?.stripComments().data(using: .utf8),
+              let root = try? JSONSerialization.jsonObject(with: json, options: [.fragmentsAllowed]) else { return nil }
+        if root is [Any] { return (json, BarSettings()) }
+        guard let document = root as? [String: Any], let items = document["items"] as? [Any],
+              let itemsData = try? JSONSerialization.data(withJSONObject: items) else { return nil }
+        return (itemsData, BarSettings(json: document["bar"] as? [String: Any] ?? [:]))
+    }
+
     func barItemDefinitions() -> [BarItemDefinition]? {
-        guard let json = utf8string?.stripComments().data(using: .utf8) else { return nil }
+        guard let items = presetDocument()?.items ?? utf8string?.stripComments().data(using: .utf8) else { return nil }
         do {
-            return try JSONDecoder().decode([BarItemDefinition].self, from: json)
+            return try JSONDecoder().decode([BarItemDefinition].self, from: items)
         } catch {
             NSLog("Stripe: invalid preset: \(error)")
             return nil // the caller shows a "bad preset" button instead of crashing
@@ -478,11 +490,11 @@ enum ItemType: Decodable {
             self = .music(interval: interval, disableMarquee: disableMarquee)
 
         case .group:
-            let items = try container.decode([BarItemDefinition].self, forKey: .items)
+            let items = try container.decodeIfPresent([BarItemDefinition].self, forKey: .items) ?? []
             self = .group(items: items)
 
         case .popover:
-            let items = try container.decode([BarItemDefinition].self, forKey: .items)
+            let items = try container.decodeIfPresent([BarItemDefinition].self, forKey: .items) ?? []
             let pressAndHold = try container.decodeIfPresent(Bool.self, forKey: .pressAndHold) ?? false
             let autoClose = try container.decodeIfPresent(Double.self, forKey: .autoClose)
             let liveIcon = try container.decodeIfPresent(Bool.self, forKey: .liveIcon) ?? true
@@ -772,6 +784,10 @@ enum GeneralParameter {
     case style(_: ItemStyle)
     case when(_: ItemCondition)
     case theme(_: Theme.Name)
+    /// A glass key of its own ("glass": true), or a standard one on a glass bar (false).
+    case glass(_: Bool)
+    /// A color the glass is tinted with ("glassTint").
+    case glassTint(_: NSColor)
 }
 
 struct GeneralParameters: Decodable {
@@ -788,6 +804,8 @@ struct GeneralParameters: Decodable {
         case style // stands for all ItemStyle keys, which are decoded together
         case when
         case theme
+        case glass
+        case glassTint
     }
 
     init(from decoder: Decoder) throws {
@@ -821,6 +839,14 @@ struct GeneralParameters: Decodable {
 
         if let title = try container.decodeIfPresent(String.self, forKey: .title) {
             result[.title] = .title(title)
+        }
+
+        if let glass = try container.decodeIfPresent(Bool.self, forKey: .glass) {
+            result[.glass] = .glass(glass)
+        }
+
+        if let tint = try container.decodeIfPresent(String.self, forKey: .glassTint)?.namedOrHexColor {
+            result[.glassTint] = .glassTint(tint)
         }
 
         if let condition = try container.decodeIfPresent(ItemCondition.self, forKey: .when) {

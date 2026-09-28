@@ -144,36 +144,45 @@ class NetworkBarItem: CustomButtonTouchBarItem, Widget, TearDownable {
         return humanText
     }
     
+    /// Stripe: cyan up, green down, and the units dimmed beside the figures.
+    private var arrowColors: (up: NSColor, down: NSColor) {
+        theme.stripeWidgets ? (NSColor(srgbRed: 0x64 / 255, green: 0xD2 / 255, blue: 1, alpha: 1),
+                               NSColor(srgbRed: 0x30 / 255, green: 0xD1 / 255, blue: 0x58 / 255, alpha: 1))
+            : (.systemBlue, .systemRed)
+    }
+
+    /// "1.2 KB/s" as the figure, with the unit dimmed in Stripe's design.
+    private func speed(_ text: String, font: NSFont) -> NSAttributedString {
+        guard theme.stripeWidgets, let space = text.lastIndex(of: " ") else {
+            return NSAttributedString(string: text, attributes: [.font: font])
+        }
+        let result = NSMutableAttributedString(string: String(text[..<space]), attributes: [.font: font])
+        result.append(NSAttributedString(string: String(text[space...]), attributes: [.font: font, .foregroundColor: StripeReadout.dim]))
+        return result
+    }
+
     func appendUpSpeed(appendString: NSMutableAttributedString, up: String, titleFont: NSFont, newStr: Bool = false) {
         appendString.append(NSMutableAttributedString(
             string: newStr ? "\n↑" : "↑",
             attributes: [
-                NSAttributedString.Key.foregroundColor: NSColor.systemBlue,
+                NSAttributedString.Key.foregroundColor: arrowColors.up,
                 NSAttributedString.Key.font: titleFont,
                 NSAttributedString.Key.kern: NetworkBarItem.arrowGap,
                 ]))
         
-        appendString.append(NSMutableAttributedString(
-            string: up,
-            attributes: [
-                NSAttributedString.Key.font: titleFont,
-                ]))
+        appendString.append(speed(up, font: titleFont))
     }
     
     func appendDownSpeed(appendString: NSMutableAttributedString, down: String, titleFont: NSFont, newStr: Bool = false) {
         appendString.append(NSMutableAttributedString(
             string: newStr ? "\n↓" : "↓",
             attributes: [
-                NSAttributedString.Key.foregroundColor: NSColor.systemRed,
+                NSAttributedString.Key.foregroundColor: arrowColors.down,
                 NSAttributedString.Key.font: titleFont,
                 NSAttributedString.Key.kern: NetworkBarItem.arrowGap,
                 ]))
             
-            appendString.append(NSMutableAttributedString(
-                string: down,
-                attributes: [
-                    NSAttributedString.Key.font: titleFont
-                ]))
+            appendString.append(speed(down, font: titleFont))
     }
     
     private static let titleFont = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .regular)

@@ -18,7 +18,7 @@ class DnDBarItem: CustomButtonTouchBarItem, TearDownable {
     init(identifier: NSTouchBarItem.Identifier) {
         super.init(identifier: identifier, title: "")
         isBordered = false
-        setWidth(value: 32)
+        if !theme.stripeWidgets { setWidth(value: 32) } // MTMR's narrow key; Stripe sizes it like other keys
 
         actions.append(ItemAction(trigger: .singleTap) { [weak self] in self?.DnDToggle() })
 
@@ -37,7 +37,12 @@ class DnDBarItem: CustomButtonTouchBarItem, TearDownable {
     }
 
     @objc func refresh() {
-        image = DoNotDisturb.isEnabled ? #imageLiteral(resourceName: "dnd-on") : #imageLiteral(resourceName: "dnd-off")
+        let on = DoNotDisturb.isEnabled
+        if theme.stripeWidgets {
+            if style.symbol == nil { image = stripeSymbol(on ? "moon.fill" : "moon") }
+        } else {
+            image = on ? #imageLiteral(resourceName: "dnd-on") : #imageLiteral(resourceName: "dnd-off")
+        }
         setBuiltInActive(DoNotDisturb.isEnabled)
     }
 }

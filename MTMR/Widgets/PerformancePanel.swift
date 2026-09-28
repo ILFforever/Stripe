@@ -525,7 +525,7 @@ final class PerformancePanel: NSObject, NSTouchBarDelegate {
 
     private func refresh() {
         // Something else (a preset reload) took the bar back.
-        if isOpen, TouchBarController.shared.touchBar.delegate !== self {
+        if isOpen, TouchBarController.shared.subBarOwner !== self {
             timer?.invalidate()
             timer = nil
             content = nil

@@ -90,7 +90,24 @@ class MusicBarItem: CustomButtonTouchBarItem, TearDownable {
         } else {
             image = nil
         }
-        if disableMarquee || !playing {
+        if theme.stripeWidgets {
+            // Stripe: the track in bold over the artist, shortened rather than scrolling.
+            let line: (String, Int) -> String = { text, limit in
+                text.count > limit ? String(text.prefix(limit - 1)).trimmingCharacters(in: .whitespaces) + "…" : text
+            }
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.minimumLineHeight = 13
+            paragraph.maximumLineHeight = 13
+            let text = NSMutableAttributedString(string: line(nowPlaying.title.isEmpty ? track : nowPlaying.title, 26), attributes: [
+                .font: NSFont.systemFont(ofSize: 12, weight: .semibold), .foregroundColor: NSColor.white, .paragraphStyle: paragraph,
+            ])
+            if !nowPlaying.artist.isEmpty, !nowPlaying.title.isEmpty {
+                text.append(NSAttributedString(string: "\n" + line(nowPlaying.artist, 30), attributes: [
+                    .font: NSFont.systemFont(ofSize: 11), .foregroundColor: StripeReadout.dim, .paragraphStyle: paragraph,
+                ]))
+            }
+            attributedTitle = text
+        } else if disableMarquee || !playing {
             title = " " + track
         } else {
             title = " " + track + "     "

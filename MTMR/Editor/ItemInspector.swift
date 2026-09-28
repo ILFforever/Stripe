@@ -882,33 +882,77 @@ struct RawJSONEditor: View {
 
 /// One choice instead of separate "border", "background" and "pill" switches
 /// that could contradict each other.
+/// Tints glass with a color, or leaves it clear: a switch, and a color well once on.
+struct GlassTintRow: View {
+    var label = "Tint"
+    let help: String
+    @Binding var value: String?
+
+    var body: some View {
+        FieldRow(label: label, help: help) {
+            HStack(spacing: 8) {
+                if value != nil {
+                    ColorPicker("", selection: Binding(
+                        get: { Color(nsColor: value?.namedOrHexColor ?? .systemBlue) },
+                        set: { value = NSColor($0).hexString }
+                    ), supportsOpacity: false)
+                        .labelsHidden()
+                }
+                Toggle("", isOn: Binding(get: { value != nil }, set: { value = $0 ? "#0A84FF" : nil }))
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+            }
+        }
+    }
+}
+
 struct BackgroundRow: View {
     @ObservedObject var item: EditorItem
 
     private var mode: String { BackgroundRow.mode(of: item) }
 
+    /// Whether the bar's Theme makes keys glass (they follow it unless they choose).
+    private static func themeGlass(_ item: EditorItem) -> Bool {
+        item.document?.bar["glassKeys"]?.bool == true
+    }
+
     static func mode(of item: EditorItem) -> String {
         if item[string: "background"] != nil { return "color" }
-        let bordered = item[bool: "bordered"] ?? !item.info.borderlessByDefault
-        return bordered ? "standard" : "none"
+        let bordered = item[bool: "bordered"] ?? !item.borderlessByDefault
+        guard bordered else { return "none" }
+        return (item[bool: "glass"] ?? themeGlass(item)) ? "glass" : "standard"
     }
 
     /// "bordered" only where it differs from what the item does by default.
     private func setBordered(_ bordered: Bool) {
-        item[bool: "bordered"] = bordered == !item.info.borderlessByDefault ? nil : bordered
+        item[bool: "bordered"] = bordered == !item.borderlessByDefault ? nil : bordered
+    }
+
+    /// "glass" only where it differs from the Theme.
+    private func setGlass(_ glass: Bool) {
+        item[bool: "glass"] = glass == BackgroundRow.themeGlass(item) ? nil : glass
+    }
+
+    private var help: String? {
+        switch mode {
+        case "standard": return "The standard gray key"
+        case "glass": return item[bool: "glass"] == nil ? "Glass, from the bar's Theme" : "Translucent: the bar's background shows through"
+        default: return nil
+        }
     }
 
     var body: some View {
-        FieldRow(label: "Background", help: mode == "standard" ? "The standard gray key" : nil) {
+        FieldRow(label: "Background", help: help) {
             HStack(spacing: 8) {
                 Picker("", selection: Binding(get: { mode }, set: setMode)) {
                     Text("Standard").tag("standard")
+                    Text("Glass").tag("glass")
                     Text("None").tag("none")
                     Text("Color").tag("color")
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .frame(width: 210)
+                .frame(width: 270)
                 if mode == "color" {
                     ColorPicker("", selection: Binding(
                         get: { Color(nsColor: item[string: "background"]?.namedOrHexColor ?? .clear) },
@@ -918,6 +962,10 @@ struct BackgroundRow: View {
                 }
             }
         }
+        if mode == "glass" {
+            GlassTintRow(help: "Glass washed with a color; the background still shows through",
+                         value: Binding(get: { item[string: "glassTint"] }, set: { item[string: "glassTint"] = $0 }))
+        }
     }
 
     private func setMode(_ mode: String) {
@@ -925,15 +973,21 @@ struct BackgroundRow: View {
         case "color":
             item[string: "background"] = item[string: "background"] ?? "#444444"
             item[bool: "bordered"] = nil
+            item[bool: "glass"] = nil
+            item[string: "glassTint"] = nil
         case "none":
             item[string: "background"] = nil
+            item[bool: "glass"] = nil
+            item[string: "glassTint"] = nil
             setBordered(false)
             item[string: "style"] = nil
             item[number: "cornerRadius"] = nil
         default:
-            // The shape stays: the standard gray key takes one too.
+            // Standard or glass. The shape stays: both keys take one.
             item[string: "background"] = nil
             setBordered(true)
+            setGlass(mode == "glass")
+            if mode != "glass" { item[string: "glassTint"] = nil }
         }
     }
 }

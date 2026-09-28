@@ -169,11 +169,11 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
             touchBar = NSTouchBar()
         }
         // An open group or popover may belong to an item that's about to change.
-        if touchBar.delegate != nil, touchBar.delegate !== self {
+        if subBarOwner != nil {
             for case let popover as PopoverBarItem in items.values {
                 popover.collapse()
             }
-            if touchBar.delegate !== self { restoreMainBar() }
+            if subBarOwner != nil { restoreMainBar() }
         }
 
         var reusable: [String: [NSTouchBarItem.Identifier]] = [:]
@@ -198,7 +198,7 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
 
     /// Each item of a preset file as JSON with sorted keys, for comparing reloads.
     static func itemKeys(of data: Data?) -> [String]? {
-        guard let text = data?.utf8string?.stripComments(), let json = text.data(using: .utf8),
+        guard let json = data?.presetDocument()?.items,
               let array = (try? JSONSerialization.jsonObject(with: json)) as? [Any] else { return nil }
         return array.map { item in
             (try? JSONSerialization.data(withJSONObject: item, options: [.sortedKeys, .fragmentsAllowed]))
@@ -247,6 +247,7 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
         } else {
             basicViewIdentifier = NSTouchBarItem.Identifier("com.toxblh.mtmr.scrollView.".appending(UUID().uuidString))
             basicView = BasicView(identifier: basicViewIdentifier, items: barItems, swipeItems: swipeItems)
+            applyBarSettings()
             basicView?.legacyGesturesEnabled = AppSettings.multitouchGestures
             touchBar.delegate = self
             touchBar.defaultItemIdentifiers = [basicViewIdentifier]
@@ -336,7 +337,25 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
         currentPresetPath = path
         let data = path.fileData
         let items = data?.barItemDefinitions() ?? [BarItemDefinition(type: .staticButton(title: "bad preset"), actions: [], action: .none, legacyLongAction: .none, additionalParameters: [:])]
-        createAndUpdatePreset(newJsonItems: items, keys: TouchBarController.itemKeys(of: data))
+        let settings = data?.presetDocument()?.bar ?? BarSettings()
+        // Glass is part of how each key is built, so switching it rebuilds them all.
+        let rebuild = settings.glassKeys != CustomButtonTouchBarItem.glass || settings.glassStyle != CustomButtonTouchBarItem.glassStyle
+        CustomButtonTouchBarItem.glass = settings.glassKeys
+        CustomButtonTouchBarItem.glassStyle = settings.glassStyle
+        let tintChanged = settings.glassTint != CustomButtonTouchBarItem.glassTint
+        CustomButtonTouchBarItem.glassTint = settings.glassTint
+        barSettings = settings
+        createAndUpdatePreset(newJsonItems: items, keys: rebuild || tintChanged ? nil : TouchBarController.itemKeys(of: data))
+        applyBarSettings()
+    }
+
+    /// The bar settings of the preset on the bar (its background, glass keys).
+    private(set) var barSettings = BarSettings()
+
+    func applyBarSettings() {
+        guard let view = basicView?.background else { return }
+        view.pausesVideoOnBattery = barSettings.pauseVideoOnBattery
+        view.background = barSettings.background
     }
 
     /// `reusing` maps an item's JSON to identifiers of identical items already on
@@ -408,8 +427,14 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
         }
     }
 
-    /// Whether an item's "when" condition (if any) currently holds.
+    /// Whether an item's "when" condition (if any) currently holds. Folders and
+    /// popovers with nothing in them are left off, like empty groups.
     func isVisible(_ definition: BarItemDefinition) -> Bool {
+        switch definition.type {
+        case let .group(items), let .popover(items, _, _, _):
+            if items.isEmpty { return false }
+        default: break
+        }
         guard case let .when(condition)? = definition.additionalParameters[.when] else { return true }
         return condition.isSatisfied(frontmost: NSWorkspace.shared.frontmostApplication)
     }
@@ -429,10 +454,28 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
 
     /// Shows `identifiers` (vended by `delegate`) in place of the main bar. Only one
     /// system-modal bar can be shown, so sub-bars take over the main one.
+    /// What's showing in place of the main bar (a folder, popover or page), if anything.
+    private(set) weak var subBarOwner: NSTouchBarDelegate?
+    private let subBarIdentifier = NSTouchBarItem.Identifier("com.ilfforever.stripe.subBar")
+    private var subBarItem: NSCustomTouchBarItem?
+
+    /// Shows a folder, popover or page in place of the main bar: its items in a
+    /// row, over the bar's background, like the main bar.
     func showSubBar(identifiers: [NSTouchBarItem.Identifier], delegate: NSTouchBarDelegate) {
-        touchBar.delegate = delegate
+        subBarOwner = delegate
+        let views = identifiers.compactMap { delegate.touchBar?(touchBar, makeItemForIdentifier: $0)?.view }
+        let row = NSStackView(views: views)
+        row.orientation = .horizontal
+        row.spacing = 8
+        let background = BarBackgroundView(content: row)
+        background.pausesVideoOnBattery = barSettings.pauseVideoOnBattery
+        background.background = barSettings.background
+        let item = NSCustomTouchBarItem(identifier: subBarIdentifier)
+        item.view = background
+        subBarItem = item
+        touchBar.delegate = self
         touchBar.defaultItemIdentifiers = []
-        touchBar.defaultItemIdentifiers = identifiers
+        touchBar.defaultItemIdentifiers = [subBarIdentifier]
         presentTouchBar()
     }
 
@@ -442,6 +485,8 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
             GroupBarItem.shown = nil
             folder.tearDown()
         }
+        subBarOwner = nil
+        subBarItem = nil
         touchBar.delegate = self
         touchBar.defaultItemIdentifiers = []
         touchBar.defaultItemIdentifiers = [basicViewIdentifier]
@@ -472,6 +517,9 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
     func touchBar(_: NSTouchBar, makeItemForIdentifier identifier: NSTouchBarItem.Identifier) -> NSTouchBarItem? {
         if identifier == basicViewIdentifier {
             return basicView
+        }
+        if identifier == subBarIdentifier {
+            return subBarItem
         }
 
         return nil
@@ -587,6 +635,12 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
         }
         if case let .background(color)? = item.additionalParameters[.background], let item = barItem as? CustomButtonTouchBarItem {
             item.backgroundColor = color
+        }
+        if case let .glass(glass)? = item.additionalParameters[.glass], let item = barItem as? CustomButtonTouchBarItem {
+            item.glass = glass
+        }
+        if case let .glassTint(tint)? = item.additionalParameters[.glassTint], let item = barItem as? CustomButtonTouchBarItem {
+            item.glassTint = tint
         }
         if case var .width(value)? = item.additionalParameters[.width], let widthBarItem = barItem as? CanSetWidth {
             if barItem is MusicBarItem { value = max(value, MusicBarItem.minimumWidth) }

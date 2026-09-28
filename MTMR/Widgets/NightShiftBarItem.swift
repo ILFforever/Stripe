@@ -29,7 +29,7 @@ class NightShiftBarItem: CustomButtonTouchBarItem, TearDownable {
     init(identifier: NSTouchBarItem.Identifier) {
         super.init(identifier: identifier, title: "")
         isBordered = false
-        setWidth(value: 28)
+        if !theme.stripeWidgets { setWidth(value: 28) } // MTMR's narrow key; Stripe sizes it like other keys
         
         actions.append(ItemAction(trigger: .singleTap) { [weak self] in self?.nightShiftAction() })
 
@@ -48,7 +48,11 @@ class NightShiftBarItem: CustomButtonTouchBarItem, TearDownable {
     }
 
     @objc func refresh() {
-        image = isNightShiftEnabled ? #imageLiteral(resourceName: "nightShiftOn") : #imageLiteral(resourceName: "nightShiftOff")
+        if theme.stripeWidgets {
+            if style.symbol == nil { image = stripeSymbol(isNightShiftEnabled ? "sun.haze.fill" : "sun.haze") }
+        } else {
+            image = isNightShiftEnabled ? #imageLiteral(resourceName: "nightShiftOn") : #imageLiteral(resourceName: "nightShiftOff")
+        }
         setBuiltInActive(isNightShiftEnabled)
     }
 

@@ -121,7 +121,8 @@ struct BarCanvas: View {
 
     var body: some View {
         VStack(spacing: 4) {
-            BarFrame(metrics: snapshots.metrics) {
+            BarFrame(metrics: snapshots.metrics, bar: document.bar, selected: session.barPanel == .background,
+                     onFrame: { session.barFrame = $0 }) {
                 // Like the real bar, an empty side takes no room (and no gap), so
                 // the rest sits where it will; it opens up during a drag to take drops.
                 HStack(spacing: 0) {
@@ -215,7 +216,7 @@ struct BarCanvas: View {
                     BarChip(item: item, snapshot: snapshots.images[item.id],
                             isSelected: session.outlines(item) || session.targetZone == GroupDropDelegate.zone(item))
                         .opacity(snapshots.hidden.contains(item.id) ? 0.4 : 1)
-                        .acceptsItems(item, document: document, session: session, snapshots: snapshots)
+                        .acceptsItems(item, align: align, document: document, session: session, snapshots: snapshots)
                         // Positions are reported as preferences, which SwiftUI recomputes
                         // on every layout (onAppear/onChange missed some).
                         .background(GeometryReader { geometry in
@@ -269,15 +270,34 @@ struct BarCanvas: View {
 /// the Touch Bar's app region, point for point, on a black bezel.
 struct BarFrame<Content: View>: View {
     @ObservedObject var metrics: BarMetrics
+    /// The bar's own settings, for its background.
+    var bar: [String: JSONValue] = [:]
+    /// Outlined when the bar itself is selected.
+    var selected = false
+    /// Where the bar is in the window, reported for selecting it by its empty space.
+    var onFrame: (CGRect) -> Void = { _ in }
     @ViewBuilder var content: Content
 
     var body: some View {
         content
             .frame(width: metrics.width, height: BarMetrics.height)
+            .background(BarBackgroundFill(bar: bar))
+            .overlay(RoundedRectangle(cornerRadius: 4)
+                .stroke(selected ? Color.accentColor : Color.clear, lineWidth: BarChip.outlineWidth)
+                .padding(-BarChip.outlineGap - 1))
+            .background(GeometryReader { geometry in
+                Color.clear.preference(key: BarFramePreference.self, value: geometry.frame(in: .global))
+            })
+            .onPreferenceChange(BarFramePreference.self, perform: onFrame)
             .padding(BarMetrics.bezel)
             .background(RoundedRectangle(cornerRadius: EditorStyle.barRadius).fill(Color.black))
             .frame(maxWidth: .infinity)
     }
+}
+
+private struct BarFramePreference: PreferenceKey {
+    static var defaultValue: CGRect = .zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
 }
 
 /// Where a new item from the library will land, drawn as it will look.
@@ -324,7 +344,7 @@ struct BarChip: View {
     }
 
     var body: some View {
-        if item.type == "cluster", item.children?.isEmpty ?? true {
+        if item.isEmptyContainer {
             emptyGroup
         } else if let snapshot = snapshot {
             image(snapshot)
@@ -351,7 +371,8 @@ struct BarChip: View {
                 .help(item.displayName)
     }
 
-    /// A group with nothing in it yet: a place to drop items. It isn't shown on the real bar.
+    /// A group, folder or popover with nothing in it yet: a place to drop items.
+    /// It isn't shown on the real bar.
     private var emptyGroup: some View {
         HStack(spacing: 5) {
             Image(systemName: "plus")
@@ -365,7 +386,7 @@ struct BarChip: View {
             .strokeBorder(isSelected ? Color.accentColor : Color.gray.opacity(0.7),
                           style: StrokeStyle(lineWidth: isSelected ? BarChip.outlineWidth : 1, dash: [3, 3])))
         .contentShape(Rectangle())
-        .help("An empty group. Drag items from the library or the bar onto it.")
+        .help("An empty \(item.info.name.lowercased()). Drag items from the library or the bar onto it.")
     }
 
     /// A cluster's items side by side on one background.
@@ -463,7 +484,7 @@ struct ZoneDropDelegate: DropDelegate {
     /// Where the dragged item goes is the number of items whose middle is left of
     /// the pointer. It settles rather than bouncing: after a move, the neighbour
     /// slides past the pointer in the direction that agrees with the new order.
-    private func reposition(at x: CGFloat) {
+    func reposition(at x: CGFloat) {
         session.dropTouched = Date()
         let section = document.items(aligned: align)
         func isLeft(_ item: EditorItem) -> Bool {
@@ -526,13 +547,17 @@ struct ZoneDropDelegate: DropDelegate {
     }
 }
 
-/// Dropping on a group puts the item inside it: a new one from the library, or
-/// one moved from the bar. Folders, popovers and groups don't go inside groups.
+/// Dropping on a group, folder or popover puts the item inside it, at the end: a
+/// new one from the library, or one moved from the bar. Its ends are the gaps
+/// beside it, so items can still be placed next to it. Folders, popovers and
+/// groups don't go inside each other.
 struct GroupDropDelegate: DropDelegate {
     let group: EditorItem
     let document: PresetDocument
     let session: EditorSession
     let snapshots: ItemSnapshotModel
+    /// The section of the bar the group is in.
+    let align: String
 
     /// The session's targetZone while a drag is over this group.
     static func zone(_ group: EditorItem) -> String { "group:\(group.id)" }
@@ -552,26 +577,53 @@ struct GroupDropDelegate: DropDelegate {
         }
     }
 
-    func validateDrop(info _: DropInfo) -> Bool { accepts }
+    /// The section the group sits in: its ends, and anything that can't go
+    /// inside, drop beside it instead.
+    private var section: ZoneDropDelegate {
+        ZoneDropDelegate(document: document, session: session, snapshots: snapshots, align: align)
+    }
 
-    func dropEntered(info _: DropInfo) {
-        guard accepts else { return }
-        session.set(\.targetZone, GroupDropDelegate.zone(group))
-        // The group is the target now, not a gap beside it.
-        if session.dropSlot != nil {
-            withAnimation(.easeInOut(duration: 0.15)) { session.dropSlot = nil }
-        }
+    /// Whether the pointer is over the middle of the group rather than one of its
+    /// ends, which stand for the gaps either side of it.
+    private func isInside(_ info: DropInfo) -> Bool {
+        guard accepts else { return false }
+        guard let width = session.zoneFrames[group.id]?.width else { return true }
+        let end = min(16, width / 4)
+        return info.location.x > end && info.location.x < width - end
+    }
+
+    /// The pointer in the section's coordinates, which the section places items by.
+    private func sectionX(_ info: DropInfo) -> CGFloat {
+        (session.zoneFrames[group.id]?.minX ?? 0) + info.location.x
+    }
+
+    func validateDrop(info _: DropInfo) -> Bool { session.dragging != nil }
+
+    func dropEntered(info: DropInfo) {
+        _ = dropUpdated(info: info)
     }
 
     func dropExited(info _: DropInfo) {
         if session.targetZone == GroupDropDelegate.zone(group) { session.set(\.targetZone, nil) }
     }
 
-    func dropUpdated(info _: DropInfo) -> DropProposal? {
-        DropProposal(operation: accepts ? .move : .forbidden)
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        if isInside(info) {
+            session.dropTouched = Date()
+            session.set(\.targetZone, GroupDropDelegate.zone(group))
+            // The group is the target now, not a gap beside it.
+            if session.dropSlot != nil {
+                withAnimation(.easeInOut(duration: 0.15)) { session.dropSlot = nil }
+            }
+        } else {
+            session.set(\.targetZone, align)
+            section.reposition(at: sectionX(info))
+        }
+        return DropProposal(operation: .move)
     }
 
-    func performDrop(info _: DropInfo) -> Bool {
+    func performDrop(info: DropInfo) -> Bool {
+        guard isInside(info) else { return section.performDrop(info: info) }
         session.set(\.targetZone, nil)
         switch session.dragging {
         case let .new(type)?:
@@ -595,13 +647,15 @@ struct GroupDropDelegate: DropDelegate {
 }
 
 extension View {
-    /// Makes a group on the bar accept drops; other items are left as they are.
+    /// Makes a group, folder or popover on the bar accept drops; other items are
+    /// left as they are.
     @ViewBuilder
-    func acceptsItems(_ item: EditorItem, document: PresetDocument, session: EditorSession,
+    func acceptsItems(_ item: EditorItem, align: String, document: PresetDocument, session: EditorSession,
                       snapshots: ItemSnapshotModel) -> some View {
-        if item.type == "cluster" {
+        if ["cluster", "group", "popover"].contains(item.type) {
             onDrop(of: [.plainText], delegate: GroupDropDelegate(group: item, document: document,
-                                                                 session: session, snapshots: snapshots))
+                                                                 session: session, snapshots: snapshots,
+                                                                 align: align))
         } else {
             self
         }

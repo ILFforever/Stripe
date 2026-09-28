@@ -244,7 +244,8 @@ class CustomButtonTouchBarItem: NSCustomTouchBarItem, NSGestureRecognizerDelegat
             // Custom-radius background: draw it on the layer, not with a bezel.
             button.isBordered = false
             button.bezelStyle = .inline
-            button.layer?.backgroundColor = color.cgColor
+            // Glass is drawn by the cell (CustomButtonCell), under the icon and title.
+            button.layer?.backgroundColor = drawsGlass ? nil : color.cgColor
             button.layer?.cornerRadius = radius
         } else if let color = backgroundColor {
             cell.isBordered = true
@@ -269,21 +270,69 @@ class CustomButtonTouchBarItem: NSCustomTouchBarItem, NSGestureRecognizerDelegat
         finishViewConfiguration()
     }
 
+    /// An SF Symbol sized for a key, as Stripe's designs use them.
+    func stripeSymbol(_ name: String) -> NSImage? {
+        let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 16, weight: .regular))
+        image?.isTemplate = true
+        return image
+    }
+
     /// The system's gray key, as it looks on the bar.
     static let standardKeyColor = NSColor(srgbRed: 0x44 / 255, green: 0x44 / 255, blue: 0x44 / 255, alpha: 1)
 
     /// The background drawn behind the key. The system draws its gray key only
     /// at its own rounding, so with a shape set we draw that gray ourselves.
     private var fillColor: NSColor? {
-        backgroundColor ?? (isBordered && drawnRadius != nil ? CustomButtonTouchBarItem.standardKeyColor : nil)
+        backgroundColor ?? (isBordered && drawnRadius != nil
+            ? (usesGlass ? CustomButtonTouchBarItem.glassFill : CustomButtonTouchBarItem.standardKeyColor) : nil)
     }
 
+    /// Translucent "glass" keys, so the bar's background shows through: the
+    /// preset's "glassKeys" (the Theme's Keys), set before its items are built.
+    static var glass = false
+
+    /// This key's own choice ("glass" on the item), else the bar's.
+    var glass: Bool? {
+        didSet { if glass != oldValue { reinstallButton() } }
+    }
+
+    var usesGlass: Bool { glass ?? CustomButtonTouchBarItem.glass }
+
+    /// The bar's glass strength and tint, set with `glass`.
+    static var glassStyle = GlassStyle.balanced
+    static var glassTint: NSColor?
+
+    /// This key's own glass tint ("glassTint"), else the bar's.
+    var glassTint: NSColor? {
+        didSet { button?.needsDisplay = true }
+    }
+
+    var effectiveGlassTint: NSColor? { glassTint ?? CustomButtonTouchBarItem.glassTint }
+
+    /// Whether the key is drawn as glass right now: a glass key with no color of
+    /// its own, and no pressed or on color showing over it.
+    var drawsGlass: Bool {
+        guard usesGlass, isBordered, backgroundColor == nil else { return false }
+        if isPressed, style.pressedBackground != nil { return false }
+        if isActive, !isPressed, style.activeBackground != nil { return false }
+        return true
+    }
+
+    var glassRadius: CGFloat { drawnRadius ?? 6 }
+    static let glassFill = NSColor(white: 1, alpha: 0.16)
+
     /// The rounding when we draw the key ourselves (the system's key has its own).
-    private var drawnRadius: CGFloat? { style.cornerRadius }
+    private var drawnRadius: CGFloat? {
+        style.cornerRadius ?? (usesGlass && isBordered && backgroundColor == nil ? 6 : nil)
+    }
 
     /// Our stand-in for the gray key lightens while touched, as the system's does.
     private var drawnStandardPressed: NSColor? {
-        backgroundColor == nil && fillColor != nil ? NSColor(srgbRed: 0x63 / 255, green: 0x63 / 255, blue: 0x66 / 255, alpha: 1) : nil
+        guard backgroundColor == nil, fillColor != nil else { return nil }
+        // Glass brightens rather than turning solid gray.
+        return usesGlass ? NSColor(white: 1, alpha: 0.32)
+            : NSColor(srgbRed: 0x63 / 255, green: 0x63 / 255, blue: 0x66 / 255, alpha: 1)
     }
 
     /// The pressed or active color when one applies, else the normal background.
@@ -300,8 +349,10 @@ class CustomButtonTouchBarItem: NSCustomTouchBarItem, NSGestureRecognizerDelegat
             button.bezelColor = color
         } else if color != nil || button.wantsLayer {
             button.wantsLayer = true
-            button.layer?.backgroundColor = color?.cgColor
+            // Glass is drawn by the cell; a pressed or on color shows solid over it.
+            button.layer?.backgroundColor = drawsGlass ? nil : color?.cgColor
             button.layer?.cornerRadius = drawnRadius ?? 6
+            if usesGlass { button.needsDisplay = true }
         }
     }
 
@@ -425,6 +476,21 @@ class CustomButtonCell: NSButtonCell {
         return rect // need that so content may better fit in button with very limited width
     }
 
+    /// Glass keys: the pane first, then the icon and title over it.
+    override func draw(withFrame cellFrame: NSRect, in controlView: NSView) {
+        if let item = parentItem, item.drawsGlass {
+            GlassPainter.draw(in: controlView, rect: controlView.bounds, radius: item.glassRadius,
+                              pressed: item.isPressed, style: CustomButtonTouchBarItem.glassStyle,
+                              tint: item.effectiveGlassTint)
+            NSGraphicsContext.saveGraphicsState()
+            GlassPainter.contentShadow.set()
+            super.draw(withFrame: cellFrame, in: controlView)
+            NSGraphicsContext.restoreGraphicsState()
+            return
+        }
+        super.draw(withFrame: cellFrame, in: controlView)
+    }
+
     /// NSButtonCell lays a title out as one line, so a second line would hang off
     /// the bottom of the key. Draw multi-line titles as a block centered in the key.
     override func drawTitle(_ title: NSAttributedString, withFrame frame: NSRect, in controlView: NSView) -> NSRect {
@@ -491,22 +557,45 @@ final class MultiClickGestureRecognizer: NSClickGestureRecognizer {
         fatalError("init(target:action:doubleAction:tripleAction) is only support atm")
     }
     
+    /// Whether the key shows as pressed; released once, however the touch ends.
+    private var touching = false {
+        didSet { if touching != oldValue { onTouch?(touching) } }
+    }
+
     override func touchesBegan(with event: NSEvent) {
         HapticFeedback.instance.play(haptic, .press)
-        onTouch?(true)
+        touching = true
         super.touchesBegan(with: event)
     }
 
+    /// Sliding off the key lets it go straight away, like a button.
+    override func touchesMoved(with event: NSEvent) {
+        if touching, let view = view,
+           let touch = event.touches(matching: .moved, in: view).first,
+           !view.bounds.contains(touch.location(in: view)) {
+            touching = false
+        }
+        super.touchesMoved(with: event)
+    }
+
     override func touchesCancelled(with event: NSEvent) {
-        onTouch?(false)
+        touching = false
         super.touchesCancelled(with: event)
+    }
+
+    /// A touch that moved too far fails the click, and a failed recognizer hears
+    /// no more touches (no touchesEnded), so it's released here, where every
+    /// outcome ends up.
+    override func reset() {
+        touching = false
+        super.reset()
     }
 
     override func touchesEnded(with event: NSEvent) {
         if handlesReleaseHaptic?() != true {
             HapticFeedback.instance.play(haptic, .release)
         }
-        onTouch?(false)
+        touching = false
         super.touchesEnded(with: event)
         _clickCount += 1
         

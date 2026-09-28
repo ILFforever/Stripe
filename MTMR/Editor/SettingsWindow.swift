@@ -50,6 +50,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
                 self.session.zoneFrames = self.session.zoneFrames.filter { self.document.find($0.key) != nil }
                 if let hit = self.session.chipFrames.first(where: { $0.value.contains(point) })?.key {
                     self.session.set(\.selection, hit)
+                } else if self.session.barFrame.contains(point) {
+                    // The bar's empty space: the bar itself.
+                    self.session.set(\.barPanel, .background)
                 }
                 return event
             }

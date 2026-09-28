@@ -314,7 +314,7 @@ final class BatteryPanel: NSObject, NSTouchBarDelegate {
 
     private func refresh() {
         // Something else (a preset reload) took the bar back.
-        if isOpen, TouchBarController.shared.touchBar.delegate !== self {
+        if isOpen, TouchBarController.shared.subBarOwner !== self {
             stop()
             return
         }

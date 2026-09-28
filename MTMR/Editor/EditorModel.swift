@@ -29,9 +29,23 @@ final class EditorItem: ObservableObject, Identifiable {
     var type: String { fields["type"]?.string ?? "unknown" }
     var info: ItemTypeInfo { ItemCatalog.info(for: type) }
     var isContainer: Bool { children != nil }
+    /// A group, folder or popover with nothing in it: hidden on the real bar, and
+    /// a place to drop items in the editor.
+    var isEmptyContainer: Bool {
+        ["cluster", "group", "popover"].contains(type) && (children?.isEmpty ?? true)
+    }
 
     /// Drawn Stripe's way (see StripeKeys) rather than MTMR's.
     var usesStripeLook: Bool { fields["theme"]?.string != "mtmr" }
+
+    /// Drawn without a key unless it's given one, in the look it has (see StripeKeys).
+    var borderlessByDefault: Bool {
+        if usesStripeLook {
+            if StripeKeys.keyedToggles.contains(type) { return false }
+            if type == "cpu" || StripeKeys.bareReadouts.contains(type) { return true }
+        }
+        return info.borderlessByDefault
+    }
 
     /// The corner rounding it has with nothing set: Stripe's text buttons are pills.
     var defaultCornerRadius: Double {
@@ -138,6 +152,8 @@ final class EditorItem: ObservableObject, Identifiable {
 final class PresetDocument: ObservableObject {
     @Published private(set) var path: String
     @Published var items: [EditorItem] = []
+    /// The bar's own settings (background, glass keys): the preset's "bar".
+    @Published private(set) var bar: [String: JSONValue] = [:]
     @Published var loadError: String?
     @Published var lastSaved: Date?
 
@@ -182,11 +198,11 @@ final class PresetDocument: ObservableObject {
         loadError = nil
         guard let text = try? String(contentsOfFile: path, encoding: .utf8) else {
             items = []
+            bar = [:]
             return
         }
         do {
-            let root = try JSONValue.parse(text)
-            items = (root.array ?? []).compactMap { $0.object }.map { EditorItem(fields: $0, document: self) }
+            read(try JSONValue.parse(text))
             savedText = serialized
         } catch {
             items = []
@@ -342,8 +358,36 @@ final class PresetDocument: ObservableObject {
         }
     }
 
+    /// Always a Stripe document; a plain list (MTMR's format) is read, and
+    /// becomes a document the next time it's saved.
     private var serialized: String {
-        return JSONValue.array(items.map { $0.json }).pretty() + "\n"
+        var root: [String: JSONValue] = ["stripe": .number(1), "items": .array(items.map { $0.json })]
+        if !bar.isEmpty { root["bar"] = .object(bar) }
+        return JSONValue.object(root).pretty() + "\n"
+    }
+
+    private func read(_ root: JSONValue) {
+        let list = root.array ?? root.object?["items"]?.array ?? []
+        bar = root.object?["bar"]?.object ?? [:]
+        items = list.compactMap { $0.object }.map { EditorItem(fields: $0, document: self) }
+    }
+
+    /// Sets one of the bar's settings, e.g. "background.gradient" or "glassKeys".
+    func setBar(_ path: String, _ value: JSONValue?) {
+        var updated = bar
+        updated[path: path] = value
+        guard updated != bar else { return }
+        bar = updated
+        scheduleSave()
+    }
+
+    /// Replaces the bar's background with another kind (or none).
+    func setBarBackground(_ background: [String: JSONValue]?) {
+        var updated = bar
+        updated["background"] = background.map { .object($0) }
+        guard updated != bar else { return }
+        bar = updated
+        scheduleSave()
     }
 
     func undo() {
@@ -362,7 +406,7 @@ final class PresetDocument: ObservableObject {
 
     private func restore(_ text: String) {
         guard let root = try? JSONValue.parse(text) else { return }
-        items = (root.array ?? []).compactMap { $0.object }.map { EditorItem(fields: $0, document: self) }
+        read(root)
         write(text)
     }
 
@@ -541,6 +585,9 @@ enum ItemCatalog {
         simple("illuminationUp", "Keyboard Light Up", "light.max", "Keys"),
 
         // Media
+        // The ready-made groups first, then each key on its own.
+        group("media", "Media Controls", "playpause.fill", ["previous", "play", "next"], category: "Media"),
+        pair("volume", "Volume", "speaker.wave.2.fill", down: "volumeDown", up: "volumeUp", category: "Media"),
         simple("previous", "Previous", "backward.fill", "Media"),
         ItemTypeInfo(type: "play", name: "Play / Pause", symbol: "playpause.fill", category: "Media", defaults: [:],
                      fields: [FieldSpec(path: "litWhilePlaying", label: "Lit while playing", kind: .choice(["pause", "play"]))]),
@@ -609,8 +656,10 @@ enum ItemCatalog {
                      fields: [FieldSpec(path: "refreshInterval", label: "Refresh every (s)", kind: .number(placeholder: "0.5"))]),
 
         // Containers
+        // A neutral icon until it's given one: with a volume slider first inside,
+        // the icon follows the volume anyway ("liveIcon").
         ItemTypeInfo(type: "popover", name: "Popover", symbol: "rectangle.expand.vertical", category: "Containers",
-                     defaults: ["symbol": .string("speaker.wave.2.fill"), "pressAndHold": .bool(true)],
+                     defaults: ["symbol": .string("ellipsis.circle"), "pressAndHold": .bool(true)],
                      fields: [FieldSpec(path: "pressAndHold", label: "Press and hold to slide", kind: .toggle(default: false)),
                               FieldSpec(path: "liveIcon", label: "Icon shows the volume level", kind: .toggle(default: true)),
                               FieldSpec(path: "autoClose", label: "Auto-close after (s)", kind: .number(placeholder: "never"))]),
@@ -644,10 +693,16 @@ enum ItemCatalog {
     static let templatePrefix = "template:"
 
     /// A down and an up key side by side in one group, split by a divider.
-    private static func pair(_ id: String, _ name: String, _ symbol: String, down: String, up: String) -> ItemTypeInfo {
-        ItemTypeInfo(type: templatePrefix + id, name: name, symbol: symbol, category: "Keys", defaults: [:], fields: [],
+    private static func pair(_ id: String, _ name: String, _ symbol: String, down: String, up: String,
+                             category: String = "Keys") -> ItemTypeInfo {
+        group(id, name, symbol, [down, up], category: category)
+    }
+
+    /// Keys side by side in one group, split by dividers: a ready-made group.
+    private static func group(_ id: String, _ name: String, _ symbol: String, _ types: [String], category: String) -> ItemTypeInfo {
+        ItemTypeInfo(type: templatePrefix + id, name: name, symbol: symbol, category: category, defaults: [:], fields: [],
                      template: ["type": .string("cluster"), "dividers": .bool(true), "itemWidth": .number(44), "spacing": .number(12), "cornerRadius": .number(8),
-                                "items": .array([.object(["type": .string(down)]), .object(["type": .string(up)])])])
+                                "items": .array(types.map { .object(["type": .string($0)]) })])
     }
 
     static func info(for type: String) -> ItemTypeInfo {
