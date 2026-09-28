@@ -31,14 +31,20 @@ extension ItemType {
             return "com.toxblh.mtmr.timeButton."
         case .battery:
             return "com.toxblh.mtmr.battery."
-        case .cpu(refreshInterval: _):
+        case .cpu:
             return "com.toxblh.mtmr.cpu."
+        case .gpu:
+            return "com.ilfforever.stripe.gpu."
+        case .performance:
+            return "com.ilfforever.stripe.performance."
         case .dock(autoResize: _, filter: _):
             return "com.toxblh.mtmr.dock"
         case .volume:
             return "com.toxblh.mtmr.volume"
         case .mute:
             return "com.ilfforever.stripe.mute."
+        case .playPause:
+            return "com.ilfforever.stripe.playPause."
         case .brightness(refreshInterval: _):
             return "com.toxblh.mtmr.brightness"
         case .weather(interval: _, units: _, api_key: _, icon_type: _):
@@ -55,6 +61,8 @@ extension ItemType {
             return "com.toxblh.mtmr.groupBar."
         case .popover:
             return "com.ilfforever.stripe.popover."
+        case .cluster:
+            return "com.ilfforever.stripe.cluster."
         case .nightShift:
             return "com.toxblh.mtmr.nightShift."
         case .dnd:
@@ -123,7 +131,13 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
                 actions: [
                     Action(trigger: .singleTap, value: .custom(closure: { [weak self] in
                         guard let `self` = self else { return }
-                        self.reloadPreset(path: self.lastPresetPath)
+                        // Closing a folder: back to the main bar, which stops the folder's items.
+                        // Anywhere else, "close" reloads the preset, as it always has.
+                        if GroupBarItem.shown != nil {
+                            self.restoreMainBar()
+                        } else {
+                            self.reloadPreset(path: self.lastPresetPath)
+                        }
                     }))
                 ],
                 legacyAction: .none,
@@ -155,11 +169,11 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
             touchBar = NSTouchBar()
         }
         // An open group or popover may belong to an item that's about to change.
-        if touchBar.delegate != nil, touchBar.delegate !== self {
+        if subBarOwner != nil {
             for case let popover as PopoverBarItem in items.values {
                 popover.collapse()
             }
-            if touchBar.delegate !== self { restoreMainBar() }
+            if subBarOwner != nil { restoreMainBar() }
         }
 
         var reusable: [String: [NSTouchBarItem.Identifier]] = [:]
@@ -184,7 +198,7 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
 
     /// Each item of a preset file as JSON with sorted keys, for comparing reloads.
     static func itemKeys(of data: Data?) -> [String]? {
-        guard let text = data?.utf8string?.stripComments(), let json = text.data(using: .utf8),
+        guard let json = data?.presetDocument()?.items,
               let array = (try? JSONSerialization.jsonObject(with: json)) as? [Any] else { return nil }
         return array.map { item in
             (try? JSONSerialization.data(withJSONObject: item, options: [.sortedKeys, .fragmentsAllowed]))
@@ -199,11 +213,17 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
         // Rebuild only when the set of visible items changes (e.g. an app switch
         // that toggles a "when" condition), and stop the items being replaced.
         let visible = Set(itemDefinitions.filter { isVisible($0.value) }.keys)
+        // Items inside a cluster show and hide in place, without a rebuild.
+        for case let cluster as ClusterBarItem in items.values {
+            cluster.updateVisibility()
+        }
+        updateActiveStates(items.values)
         if visible == visibleIdentifiers {
             return
         }
         visibleIdentifiers = visible
         let created = createItems(visible)
+        updateActiveStates(created)
 
         let centerItems = centerIdentifiers.compactMap({ (identifier) -> NSTouchBarItem? in
             items[identifier]
@@ -227,6 +247,7 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
         } else {
             basicViewIdentifier = NSTouchBarItem.Identifier("com.toxblh.mtmr.scrollView.".appending(UUID().uuidString))
             basicView = BasicView(identifier: basicViewIdentifier, items: barItems, swipeItems: swipeItems)
+            applyBarSettings()
             basicView?.legacyGesturesEnabled = AppSettings.multitouchGestures
             touchBar.delegate = self
             touchBar.defaultItemIdentifiers = [basicViewIdentifier]
@@ -316,7 +337,25 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
         currentPresetPath = path
         let data = path.fileData
         let items = data?.barItemDefinitions() ?? [BarItemDefinition(type: .staticButton(title: "bad preset"), actions: [], action: .none, legacyLongAction: .none, additionalParameters: [:])]
-        createAndUpdatePreset(newJsonItems: items, keys: TouchBarController.itemKeys(of: data))
+        let settings = data?.presetDocument()?.bar ?? BarSettings()
+        // Glass is part of how each key is built, so switching it rebuilds them all.
+        let rebuild = settings.glassKeys != CustomButtonTouchBarItem.glass || settings.glassStyle != CustomButtonTouchBarItem.glassStyle
+        CustomButtonTouchBarItem.glass = settings.glassKeys
+        CustomButtonTouchBarItem.glassStyle = settings.glassStyle
+        let tintChanged = settings.glassTint != CustomButtonTouchBarItem.glassTint
+        CustomButtonTouchBarItem.glassTint = settings.glassTint
+        barSettings = settings
+        createAndUpdatePreset(newJsonItems: items, keys: rebuild || tintChanged ? nil : TouchBarController.itemKeys(of: data))
+        applyBarSettings()
+    }
+
+    /// The bar settings of the preset on the bar (its background, glass keys).
+    private(set) var barSettings = BarSettings()
+
+    func applyBarSettings() {
+        guard let view = basicView?.background else { return }
+        view.pausesVideoOnBattery = barSettings.pauseVideoOnBattery
+        view.background = barSettings.background
     }
 
     /// `reusing` maps an item's JSON to identifiers of identical items already on
@@ -379,8 +418,23 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
         return created
     }
 
-    /// Whether an item's "when" condition (if any) currently holds.
+    /// Turns items with an "activeWhen" rule on or off.
+    func updateActiveStates<S: Sequence>(_ items: S) where S.Element == NSTouchBarItem {
+        for case let button as CustomButtonTouchBarItem in items {
+            if let rule = button.style.activeWhen {
+                button.isActive = rule.isSatisfied(frontmost: NSWorkspace.shared.frontmostApplication)
+            }
+        }
+    }
+
+    /// Whether an item's "when" condition (if any) currently holds. Folders and
+    /// popovers with nothing in them are left off, like empty groups.
     func isVisible(_ definition: BarItemDefinition) -> Bool {
+        switch definition.type {
+        case let .group(items), let .popover(items, _, _, _):
+            if items.isEmpty { return false }
+        default: break
+        }
         guard case let .when(condition)? = definition.additionalParameters[.when] else { return true }
         return condition.isSatisfied(frontmost: NSWorkspace.shared.frontmostApplication)
     }
@@ -400,15 +454,39 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
 
     /// Shows `identifiers` (vended by `delegate`) in place of the main bar. Only one
     /// system-modal bar can be shown, so sub-bars take over the main one.
+    /// What's showing in place of the main bar (a folder, popover or page), if anything.
+    private(set) weak var subBarOwner: NSTouchBarDelegate?
+    private let subBarIdentifier = NSTouchBarItem.Identifier("com.ilfforever.stripe.subBar")
+    private var subBarItem: NSCustomTouchBarItem?
+
+    /// Shows a folder, popover or page in place of the main bar: its items in a
+    /// row, over the bar's background, like the main bar.
     func showSubBar(identifiers: [NSTouchBarItem.Identifier], delegate: NSTouchBarDelegate) {
-        touchBar.delegate = delegate
+        subBarOwner = delegate
+        let views = identifiers.compactMap { delegate.touchBar?(touchBar, makeItemForIdentifier: $0)?.view }
+        let row = NSStackView(views: views)
+        row.orientation = .horizontal
+        row.spacing = 8
+        let background = BarBackgroundView(content: row)
+        background.pausesVideoOnBattery = barSettings.pauseVideoOnBattery
+        background.background = barSettings.background
+        let item = NSCustomTouchBarItem(identifier: subBarIdentifier)
+        item.view = background
+        subBarItem = item
+        touchBar.delegate = self
         touchBar.defaultItemIdentifiers = []
-        touchBar.defaultItemIdentifiers = identifiers
+        touchBar.defaultItemIdentifiers = [subBarIdentifier]
         presentTouchBar()
     }
 
     /// Returns from a sub-bar to the main bar.
     func restoreMainBar() {
+        if let folder = GroupBarItem.shown {
+            GroupBarItem.shown = nil
+            folder.tearDown()
+        }
+        subBarOwner = nil
+        subBarItem = nil
         touchBar.delegate = self
         touchBar.defaultItemIdentifiers = []
         touchBar.defaultItemIdentifiers = [basicViewIdentifier]
@@ -440,11 +518,19 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
         if identifier == basicViewIdentifier {
             return basicView
         }
+        if identifier == subBarIdentifier {
+            return subBarItem
+        }
 
         return nil
     }
 
     func createItem(forIdentifier identifier: NSTouchBarItem.Identifier, definition item: BarItemDefinition) -> NSTouchBarItem? {
+        // The item's own look (MTMR or Stripe), for everything it builds now; items
+        // built inside another (a group's) take their parent's unless they set one.
+        let outer = Theme.building
+        if case let .theme(name)? = item.additionalParameters[.theme] { Theme.building = Theme.named(name) }
+        defer { Theme.building = outer }
         var barItem: NSTouchBarItem!
         switch item.type {
         case let .staticButton(title: title):
@@ -455,10 +541,16 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
             barItem = ShellScriptTouchBarItem(identifier: identifier, source: source, interval: interval)
         case let .timeButton(formatTemplate: template, timeZone: timeZone, locale: locale):
             barItem = TimeTouchBarItem(identifier: identifier, formatTemplate: template, timeZone: timeZone, locale: locale)
-        case let .battery(options):
+        case var .battery(options):
+            // The panel's back chevron defaults to the battery item's side of the bar.
+            if options.panel.closeSide == nil { options.panel.closeSide = item.align == .left ? .left : .right }
             barItem = BatteryBarItem(identifier: identifier, options: options)
-        case let .cpu(refreshInterval: refreshInterval):
-            barItem = CPUBarItem(identifier: identifier, refreshInterval: refreshInterval)
+        case let .cpu(refreshInterval: refreshInterval, panel: panel):
+            barItem = CPUBarItem(identifier: identifier, refreshInterval: refreshInterval, panel: panel.onSide(of: item))
+        case let .gpu(refreshInterval: refreshInterval, panel: panel):
+            barItem = GPUBarItem(identifier: identifier, refreshInterval: refreshInterval, panel: panel.onSide(of: item))
+        case let .performance(design: design, panel: panel):
+            barItem = PerformanceBarItem(identifier: identifier, design: design, panel: panel.onSide(of: item))
         case let .dock(autoResize: autoResize, filter: regexString):
             if let regexString = regexString {
                 guard let regex = try? NSRegularExpression(pattern: regexString, options: []) else {
@@ -471,6 +563,8 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
             }
         case .mute:
             barItem = MuteBarItem(identifier: identifier)
+        case let .playPause(litWhilePlaying):
+            barItem = PlayPauseBarItem(identifier: identifier, litWhilePlaying: litWhilePlaying)
         case .volume:
             if case let .image(source)? = item.additionalParameters[.image] {
                 barItem = VolumeViewController(identifier: identifier, image: source.image)
@@ -498,6 +592,8 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
         case let .popover(items: items, pressAndHold: pressAndHold, autoClose: autoClose, liveIcon: liveIcon):
             barItem = PopoverBarItem(identifier: identifier, items: items, pressAndHold: pressAndHold, autoClose: autoClose,
                                      align: item.align, liveIcon: liveIcon)
+        case let .cluster(items: items, options: options):
+            barItem = ClusterBarItem(identifier: identifier, items: items, options: options, definition: item, bar: self)
         case .nightShift:
             barItem = NightShiftBarItem(identifier: identifier)
         case .dnd:
@@ -514,6 +610,14 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
             barItem = UpNextScrubberTouchBarItem(identifier: identifier, interval: 60, from: from, to: to, maxToShow: maxToShow, autoResize: autoResize)
         }
 
+        // The preset's actions replace the item's own for the same trigger (e.g. a
+        // single-tap action on the battery replaces switching to time remaining).
+        if let button = barItem as? CustomButtonTouchBarItem {
+            var triggers = Set(item.actions.map { $0.trigger })
+            if case .none = item.legacyAction {} else { triggers.insert(.singleTap) }
+            if case .none = item.legacyLongAction {} else { triggers.insert(.longTap) }
+            button.actions.removeAll { triggers.contains($0.trigger) }
+        }
         if let action = self.action(forItem: item), let item = barItem as? CustomButtonTouchBarItem {
             item.actions.append(ItemAction(trigger: .singleTap, action))
         }
@@ -525,6 +629,10 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
             for action in item.actions {
                 touchBarItem.actions.append(ItemAction(trigger: action.trigger, self.closure(for: action)))
             }
+            // Brightness and volume keys keep stepping while held.
+            for action in item.actions where action.trigger == .singleTap {
+                if case let .hidKey(keycode) = action.value { touchBarItem.holdRepeat = HoldRepeat(hidKey: keycode) }
+            }
         }
         if case let .bordered(bordered)? = item.additionalParameters[.bordered], let item = barItem as? CustomButtonTouchBarItem {
             item.isBordered = bordered
@@ -532,18 +640,29 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
         if case let .background(color)? = item.additionalParameters[.background], let item = barItem as? CustomButtonTouchBarItem {
             item.backgroundColor = color
         }
-        if case let .width(value)? = item.additionalParameters[.width], let widthBarItem = barItem as? CanSetWidth {
+        if case let .glass(glass)? = item.additionalParameters[.glass], let item = barItem as? CustomButtonTouchBarItem {
+            item.glass = glass
+        }
+        if case let .glassTint(tint)? = item.additionalParameters[.glassTint], let item = barItem as? CustomButtonTouchBarItem {
+            item.glassTint = tint
+        }
+        if case var .width(value)? = item.additionalParameters[.width], let widthBarItem = barItem as? CanSetWidth {
+            if barItem is MusicBarItem { value = max(value, MusicBarItem.minimumWidth) }
             widthBarItem.setWidth(value: value)
         }
         if case let .image(source)? = item.additionalParameters[.image], let item = barItem as? CustomButtonTouchBarItem {
             item.image = source.image
         }
         if case let .style(style)? = item.additionalParameters[.style] {
+            (barItem as? HasSliderDetents)?.detents.style = style.haptic
             if let item = barItem as? CustomButtonTouchBarItem {
                 item.style = style
             } else if let item = barItem as? NSPopoverTouchBarItem, let symbolImage = style.symbolImage {
                 item.collapsedRepresentationImage = symbolImage
             }
+        }
+        if Theme.current.restyledKeys, let button = barItem as? CustomButtonTouchBarItem {
+            StripeKeys.apply(to: button, definition: item)
         }
         if case let .image(source)? = item.additionalParameters[.image], let item = barItem as? NSPopoverTouchBarItem {
             item.collapsedRepresentationImage = source.image

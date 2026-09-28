@@ -1,6 +1,13 @@
 import Foundation
 
-class AppleScriptTouchBarItem: CustomButtonTouchBarItem {
+class AppleScriptTouchBarItem: CustomButtonTouchBarItem, TearDownable {
+    /// Set when the bar replaces this item (or its folder closes); stops the refresh loop.
+    private var stopped = false
+
+    func tearDown() {
+        stopped = true
+    }
+
     private var script: NSAppleScript!
     private let interval: TimeInterval
     private var forceHideConstraint: NSLayoutConstraint!
@@ -10,6 +17,8 @@ class AppleScriptTouchBarItem: CustomButtonTouchBarItem {
         self.interval = interval
         self.alternativeImages = alternativeImages
         super.init(identifier: identifier, title: "")
+        // No key behind it unless the preset asks for one ("bordered": true).
+        isBordered = false
         hideUntilFirstTitle()
         forceHideConstraint = view.widthAnchor.constraint(equalToConstant: 0)
         title = "scheduled"
@@ -21,9 +30,6 @@ class AppleScriptTouchBarItem: CustomButtonTouchBarItem {
                 return
             }
             self.script = script
-            DispatchQueue.main.async {
-                self.isBordered = false
-            }
             
             var error: NSDictionary?
             guard script.compileAndReturnError(&error) else {
@@ -44,6 +50,7 @@ class AppleScriptTouchBarItem: CustomButtonTouchBarItem {
     }
 
     func refreshAndSchedule() {
+        guard !stopped else { return }
         #if DEBUG
             print("refresh happened (interval \(interval)), self \(identifier.rawValue))")
         #endif
@@ -56,7 +63,8 @@ class AppleScriptTouchBarItem: CustomButtonTouchBarItem {
             #endif
         }
         DispatchQueue.appleScriptQueue.asyncAfter(deadline: .now() + interval) { [weak self] in
-            self?.refreshAndSchedule()
+            guard let self = self, !self.stopped else { return }
+            self.refreshAndSchedule()
         }
     }
 

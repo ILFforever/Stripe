@@ -146,6 +146,97 @@ struct InspectorSection<Content: View>: View {
     }
 }
 
+/// Text tabs whose highlight slides to the chosen one (like PaneToggle).
+struct TabSwitcher<Tag: Hashable>: View {
+    let selection: Tag
+    let options: [(tag: Tag, title: String)]
+    let select: (Tag) -> Void
+
+    private static var segmentWidth: CGFloat { 86 }
+    private static var height: CGFloat { 24 }
+
+    private var selectedIndex: Int {
+        options.firstIndex { $0.tag == selection } ?? 0
+    }
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 5)
+                .fill(Color.accentColor)
+                .frame(width: TabSwitcher.segmentWidth, height: TabSwitcher.height)
+                .offset(x: CGFloat(selectedIndex) * TabSwitcher.segmentWidth)
+            HStack(spacing: 0) {
+                ForEach(options, id: \.tag) { option in
+                    Button(action: { select(option.tag) }) {
+                        Text(option.title)
+                            .font(.system(size: 12.5, weight: option.tag == selection ? .semibold : .regular))
+                            .foregroundColor(option.tag == selection ? .white : .primary)
+                            .frame(width: TabSwitcher.segmentWidth, height: TabSwitcher.height)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(2)
+        .background(RoundedRectangle(cornerRadius: 7).fill(Color.primary.opacity(0.08)))
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: selectedIndex)
+    }
+}
+
+/// A titled group of rows in a rounded box, always open (for inspector tabs,
+/// where each tab is short enough not to need collapsing).
+struct InspectorGroup<Content: View, Accessory: View>: View {
+    let title: String
+    let symbol: String
+    @ViewBuilder let accessory: () -> Accessory
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: symbol).foregroundColor(.secondary).frame(width: 18)
+                Text(title).font(.system(size: 13, weight: .semibold))
+                Spacer()
+                accessory()
+            }
+            .padding(.vertical, 2)
+            VStack(alignment: .leading, spacing: 0) {
+                content()
+            }
+            .padding(.bottom, -1) // rows draw a divider below themselves; hide the last one
+            .clipped()
+            .padding(.horizontal, 12)
+            .padding(.vertical, 2)
+            .background(RoundedRectangle(cornerRadius: EditorStyle.boxRadius).fill(Color(nsColor: .controlBackgroundColor)))
+            .overlay(RoundedRectangle(cornerRadius: EditorStyle.boxRadius).stroke(Color(nsColor: .separatorColor), lineWidth: 0.5))
+        }
+    }
+}
+
+extension InspectorGroup where Accessory == EmptyView {
+    init(title: String, symbol: String, @ViewBuilder content: @escaping () -> Content) {
+        self.init(title: title, symbol: symbol, accessory: { EmptyView() }, content: content)
+    }
+}
+
+/// A row that can be taken away: a minus button beside it clears what it sets.
+struct RemovableRow<Content: View>: View {
+    let remove: () -> Void
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        HStack(spacing: 6) {
+            content()
+            Button(action: remove) {
+                Image(systemName: "minus.circle").foregroundColor(.secondary)
+            }
+            .buttonStyle(.borderless)
+            .help("Remove")
+        }
+    }
+}
+
 /// Label on the left, control on the right, separator below.
 struct FieldRow<Control: View>: View {
     let label: String
@@ -281,7 +372,7 @@ struct MultilineRow: View {
 struct ColorRow: View {
     let label: String
     @Binding var value: String
-    var suggested = "#3A3A3C"
+    var suggested = "#444444"
 
     var body: some View {
         FieldRow(label: label) {
@@ -292,7 +383,7 @@ struct ColorRow: View {
 
 struct ColorControl: View {
     @Binding var value: String
-    var suggested = "#3A3A3C"
+    var suggested = "#444444"
 
     var body: some View {
         HStack(spacing: 6) {

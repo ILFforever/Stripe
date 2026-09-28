@@ -36,9 +36,15 @@ class MuteBarItem: CustomButtonTouchBarItem, TearDownable {
 
     private func refresh() {
         guard let observer = observer else { return }
-        var live = style
-        live.symbol = observer.speakerSymbol
-        image = live.symbolImage
+        if theme.liveMuteIcon {
+            var live = style
+            live.symbol = observer.speakerSymbol
+            image = live.symbolImage
+        } else {
+            // MTMR's static mute icon, unless the preset gives one.
+            image = style.symbolImage ?? NSImage(named: NSImage.touchBarAudioOutputMuteTemplateName)
+        }
+        setBuiltInActive(observer.isMuted)
     }
 
     private func toggle() {

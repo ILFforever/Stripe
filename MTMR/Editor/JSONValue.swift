@@ -77,7 +77,7 @@ enum JSONValue: Equatable {
 
     /// Keys printed first, in this order, so saved presets read naturally.
     static let preferredKeyOrder = [
-        "type", "title", "align", "width", "symbol", "image", "style", "background", "bordered",
+        "stripe", "bar", "type", "title", "align", "width", "symbol", "image", "style", "background", "bordered",
         "iconColor", "textColor", "fontSize", "fontWeight", "monospacedDigits", "cornerRadius",
         "source", "refreshInterval", "items", "actions", "when",
     ]

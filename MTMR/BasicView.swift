@@ -14,6 +14,9 @@ class BasicView: NSCustomTouchBarItem, NSGestureRecognizerDelegate {
     var threefingers: NSPanGestureRecognizer!
     var fourfingers: NSPanGestureRecognizer!
     var swipeItems: [SwipeItem] = []
+    /// The items, in a row over the bar's background.
+    private(set) var stackView: NSStackView?
+    private(set) var background: BarBackgroundView?
     var prevPositions: [Int: CGFloat] = [2:0, 3:0, 4:0]
 
     // legacy gesture positions
@@ -28,7 +31,10 @@ class BasicView: NSCustomTouchBarItem, NSGestureRecognizerDelegate {
         let stackView = NSStackView(views: views)
         stackView.spacing = 8
         stackView.orientation = .horizontal
-        view = stackView
+        self.stackView = stackView
+        let background = BarBackgroundView(content: stackView)
+        self.background = background
+        view = background
 
         twofingers = NSPanGestureRecognizer(target: self, action: #selector(twofingersHandler(_:)))
         twofingers.numberOfTouchesRequired = 2
@@ -49,7 +55,7 @@ class BasicView: NSCustomTouchBarItem, NSGestureRecognizerDelegate {
     /// Replaces the bar's contents in place.
     func setItems(_ items: [NSTouchBarItem], swipeItems: [SwipeItem]) {
         self.swipeItems = swipeItems
-        guard let stackView = view as? NSStackView else { return }
+        guard let stackView = stackView else { return }
         for view in stackView.arrangedSubviews {
             stackView.removeArrangedSubview(view)
             view.removeFromSuperview()

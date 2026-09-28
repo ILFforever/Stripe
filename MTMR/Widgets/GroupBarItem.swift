@@ -5,9 +5,20 @@
 //  Created by Daniel Apatin on 11.05.2018.
 //  Copyright © 2018 Anton Palgunov. All rights reserved.
 //
+//  Stripe: a folder ("type": "group"). A button like any other (so it takes the
+//  key look, pressed and on-state colors, and haptics); tapping it shows its
+//  items in place of the main bar, until a "close" item or anything else brings
+//  the main bar back. Its items are built when it opens and stopped when it
+//  closes, so their scripts don't run while it's closed.
+//
 import Cocoa
 
-class GroupBarItem: NSPopoverTouchBarItem, NSTouchBarDelegate, TearDownable {
+class GroupBarItem: CustomButtonTouchBarItem, NSTouchBarDelegate, TearDownable {
+    /// The folder whose items are on the bar, if any. Its items are stopped when
+    /// the main bar comes back (TouchBarController.restoreMainBar), so their
+    /// scripts and timers don't keep running while the folder is closed.
+    static weak var shown: GroupBarItem?
+
     var jsonItems: [BarItemDefinition]
 
     var itemDefinitions: [NSTouchBarItem.Identifier: BarItemDefinition] = [:]
@@ -21,48 +32,60 @@ class GroupBarItem: NSPopoverTouchBarItem, NSTouchBarDelegate, TearDownable {
 
     init(identifier: NSTouchBarItem.Identifier, items: [BarItemDefinition]) {
         jsonItems = items
-        super.init(identifier: identifier)
-        popoverTouchBar.delegate = self
+        super.init(identifier: identifier, title: "")
+        actions.append(ItemAction(trigger: .singleTap) { [weak self] in self?.open() })
     }
 
     required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    deinit {}
-
     func tearDown() {
         tearDownItems(items.values)
         items = [:]
+        centerItems = []
+        scrollArea = nil
     }
 
-    @objc override func showPopover(_: Any?) {
+    /// Shows the folder's items in place of the main bar.
+    func open() {
         tearDown()
         itemDefinitions = [:]
         items = [:]
         leftIdentifiers = []
+        centerIdentifiers = []
         centerItems = []
         rightIdentifiers = []
+        GroupBarItem.shown = self
 
         loadItemDefinitions(jsonItems: jsonItems)
         createItems()
 
-        centerItems = centerIdentifiers.compactMap({ (identifier) -> NSTouchBarItem? in
-            items[identifier]
-        })
-
+        centerItems = centerIdentifiers.compactMap { items[$0] }
         centerScrollArea = NSTouchBarItem.Identifier("com.toxblh.mtmr.scrollArea.".appending(UUID().uuidString))
         scrollArea = ScrollViewItem(identifier: centerScrollArea, items: centerItems)
 
-        TouchBarController.shared.touchBar.delegate = self
-        TouchBarController.shared.touchBar.defaultItemIdentifiers = []
-        TouchBarController.shared.touchBar.defaultItemIdentifiers = leftIdentifiers + [centerScrollArea] + rightIdentifiers
+        TouchBarController.shared.showSubBar(identifiers: leftIdentifiers + [centerScrollArea] + rightIdentifiers, delegate: self)
+    }
 
-        if AppSettings.showControlStripState {
-            presentSystemModal(TouchBarController.shared.touchBar, systemTrayItemIdentifier: .controlStripItem)
-        } else {
-            presentSystemModal(TouchBarController.shared.touchBar, placement: 1, systemTrayItemIdentifier: .controlStripItem)
-        }
+    /// The folder's bar as it would show, for Settings to picture without opening
+    /// it: its items built as open() does, laid out like the main bar. The caller
+    /// tears this item down afterwards, which stops them.
+    func makePreviewView() -> NSView {
+        tearDown()
+        itemDefinitions = [:]
+        leftIdentifiers = []
+        centerIdentifiers = []
+        rightIdentifiers = []
+        loadItemDefinitions(jsonItems: jsonItems)
+        createItems()
+        let center = ScrollViewItem(identifier: centerScrollArea, items: centerIdentifiers.compactMap { items[$0] })
+        let views = leftIdentifiers.compactMap { items[$0]?.view } + [center.view]
+            + rightIdentifiers.compactMap { items[$0]?.view }
+        let stack = NSStackView(views: views)
+        stack.orientation = .horizontal
+        stack.spacing = 8
+        return stack
     }
 
     func touchBar(_: NSTouchBar, makeItemForIdentifier identifier: NSTouchBarItem.Identifier) -> NSTouchBarItem? {

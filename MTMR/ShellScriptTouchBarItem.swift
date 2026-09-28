@@ -7,8 +7,10 @@
 //
 import Foundation
 
-class ShellScriptTouchBarItem: CustomButtonTouchBarItem {
+class ShellScriptTouchBarItem: CustomButtonTouchBarItem, TearDownable {
     private let interval: TimeInterval
+    /// Set when the bar replaces this item (or its folder closes); stops the refresh loop.
+    private var stopped = false
     private let source: String
     private var forceHideConstraint: NSLayoutConstraint!
     
@@ -34,7 +36,12 @@ class ShellScriptTouchBarItem: CustomButtonTouchBarItem {
         fatalError("init(coder:) has not been implemented")
     }
     
+    func tearDown() {
+        stopped = true
+    }
+
     func refreshAndSchedule() {
+        guard !stopped else { return }
         // Execute script and get result
         let scriptResult = execute(source)
         var rawTitle: String, image: NSImage?
@@ -73,7 +80,8 @@ class ShellScriptTouchBarItem: CustomButtonTouchBarItem {
         
         // Schedule next update
         DispatchQueue.shellScriptQueue.asyncAfter(deadline: .now() + interval) { [weak self] in
-            self?.refreshAndSchedule()
+            guard let self = self, !self.stopped else { return }
+            self.refreshAndSchedule()
         }
     }
     

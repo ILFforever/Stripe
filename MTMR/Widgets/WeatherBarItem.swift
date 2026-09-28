@@ -86,15 +86,20 @@ class WeatherBarItem: CustomButtonTouchBarItem, CLLocationManagerDelegate {
 //                        print(json)
                         var temperature: Int!
                         var condition_icon = ""
+                        var iconCode = ""
+                        var low: Int?, high: Int?
 
                         if let main = json["main"] as? [String: AnyObject] {
                             if let temp = main["temp"] as? Double {
                                 temperature = Int(temp)
                             }
+                            low = (main["temp_min"] as? Double).map { Int($0.rounded()) }
+                            high = (main["temp_max"] as? Double).map { Int($0.rounded()) }
                         }
 
                         if let weather = json["weather"] as? NSArray, let item = weather[0] as? NSDictionary {
                             let icon = item["icon"] as! String
+                            iconCode = icon
                             if let test = self.iconsSource[icon] {
                                 condition_icon = test
                             }
@@ -102,7 +107,11 @@ class WeatherBarItem: CustomButtonTouchBarItem, CLLocationManagerDelegate {
 
                         if temperature != nil {
                             DispatchQueue.main.async {
-                                self.setWeather(text: "\(condition_icon) \(temperature!)\(self.units_str)")
+                                if self.theme.stripeWidgets {
+                                    self.showStripe(temperature: temperature, icon: iconCode, low: low, high: high)
+                                } else {
+                                    self.setWeather(text: "\(condition_icon) \(temperature!)\(self.units_str)")
+                                }
                             }
                         }
                     } catch let jsonError {
@@ -117,6 +126,41 @@ class WeatherBarItem: CustomButtonTouchBarItem, CLLocationManagerDelegate {
 
     func setWeather(text: String) {
         title = text
+    }
+
+    /// Stripe's weather: the condition as a colored symbol, the temperature in
+    /// bold, and the day's high and low stacked small beside it.
+    private func showStripe(temperature: Int, icon: String, low: Int?, high: Int?) {
+        let (symbol, color) = WeatherBarItem.condition(icon)
+        if style.symbol == nil {
+            image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+                .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+                    .applying(NSImage.SymbolConfiguration(paletteColors: color)))
+        }
+        let text = NSMutableAttributedString(attributedString: StripeReadout.figure("\(temperature)°"))
+        if let low = low, let high = high {
+            text.append(StripeReadout.gap(5))
+            text.append(StripeReadout.stacked(StripeReadout.small("H \(high)"), StripeReadout.small("L \(low)")))
+        }
+        attributedTitle = text
+    }
+
+    /// OpenWeather's icon code as an SF Symbol and its colors (day and night alike).
+    static func condition(_ code: String) -> (String, [NSColor]) {
+        let sun = NSColor(srgbRed: 1, green: 0xD6 / 255, blue: 0x0A / 255, alpha: 1)
+        let cloud = NSColor(white: 0.9, alpha: 1)
+        let rain = NSColor(srgbRed: 0x64 / 255, green: 0xD2 / 255, blue: 1, alpha: 1)
+        let night = code.hasSuffix("n")
+        switch code.prefix(2) {
+        case "01": return night ? ("moon.stars.fill", [cloud, sun]) : ("sun.max.fill", [sun])
+        case "02": return night ? ("cloud.moon.fill", [cloud, sun]) : ("cloud.sun.fill", [cloud, sun])
+        case "03", "04": return ("cloud.fill", [cloud])
+        case "09", "10": return ("cloud.rain.fill", [cloud, rain])
+        case "11": return ("cloud.bolt.rain.fill", [cloud, sun])
+        case "13": return ("snowflake", [cloud])
+        case "50": return ("cloud.fog.fill", [cloud])
+        default: return ("thermometer.medium", [cloud])
+        }
     }
 
     func locationManager(_: CLLocationManager, didUpdateLocations locations: [CLLocation]) {

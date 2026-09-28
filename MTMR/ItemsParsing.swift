@@ -1,11 +1,23 @@
 import AppKit
 import Foundation
 
+/// A preset is either a plain list of items (MTMR's format, still read) or a
+/// Stripe document: { "stripe": 1, "bar": { … }, "items": [ … ] }.
 extension Data {
+    /// The items as JSON, and the bar's settings.
+    func presetDocument() -> (items: Data, bar: BarSettings)? {
+        guard let json = utf8string?.stripComments().data(using: .utf8),
+              let root = try? JSONSerialization.jsonObject(with: json, options: [.fragmentsAllowed]) else { return nil }
+        if root is [Any] { return (json, BarSettings()) }
+        guard let document = root as? [String: Any], let items = document["items"] as? [Any],
+              let itemsData = try? JSONSerialization.data(withJSONObject: items) else { return nil }
+        return (itemsData, BarSettings(json: document["bar"] as? [String: Any] ?? [:]))
+    }
+
     func barItemDefinitions() -> [BarItemDefinition]? {
-        guard let json = utf8string?.stripComments().data(using: .utf8) else { return nil }
+        guard let items = presetDocument()?.items ?? utf8string?.stripComments().data(using: .utf8) else { return nil }
         do {
-            return try JSONDecoder().decode([BarItemDefinition].self, from: json)
+            return try JSONDecoder().decode([BarItemDefinition].self, from: items)
         } catch {
             NSLog("Stripe: invalid preset: \(error)")
             return nil // the caller shows a "bad preset" button instead of crashing
@@ -19,6 +31,8 @@ struct BarItemDefinition: Decodable {
     let legacyAction: LegacyActionType
     let legacyLongAction: LegacyLongActionType
     let additionalParameters: [GeneralParameters.CodingKeys: GeneralParameter]
+    /// The preset's "type", e.g. "delete" (which the item type alone can't tell from a button).
+    var typeName = ""
 
     private enum CodingKeys: String, CodingKey {
         case type
@@ -41,12 +55,29 @@ struct BarItemDefinition: Decodable {
         var additionalParameters = try GeneralParameters(from: decoder).parameters
 
         if let result = try? parametersDecoder(decoder),
-            case let (itemType, actions, action, longAction, parameters) = result {
+            case let (itemType, builtIn, action, longAction, parameters) = result {
             parameters.forEach { additionalParameters[$0] = $1 }
-            self.init(type: itemType, actions: actions, action: action, legacyLongAction: longAction, additionalParameters: additionalParameters)
+            var merged = builtIn, legacy = action, legacyLong = longAction
+            // The preset's actions replace an item's own for the same trigger. Keys with a
+            // fixed action (escape, media keys, mute…) come back from their decoder with
+            // only that action, so the preset's are merged in here; other types already
+            // come back with the preset's.
+            if SupportedTypesHolder.sharedInstance.hasFixedActions(type) {
+                let userActions = actions ?? []
+                let userAction = (try? LegacyActionType(from: decoder)) ?? .none
+                let userLongAction = (try? LegacyLongActionType(from: decoder)) ?? .none
+                var overridden = Set(userActions.map { $0.trigger })
+                if case .none = userAction {} else { overridden.insert(.singleTap) }
+                if case .none = userLongAction {} else { overridden.insert(.longTap) }
+                merged = builtIn.filter { !overridden.contains($0.trigger) } + userActions
+                if case .none = legacy { legacy = userAction }
+                if case .none = legacyLong { legacyLong = userLongAction }
+            }
+            self.init(type: itemType, actions: merged, action: legacy, legacyLongAction: legacyLong, additionalParameters: additionalParameters)
         } else {
             self.init(type: .staticButton(title: "unknown"), actions: [], action: .none, legacyLongAction: .none, additionalParameters: additionalParameters)
         }
+        typeName = type
     }
 }
 
@@ -180,18 +211,16 @@ class SupportedTypesHolder {
             )
         },
 
-        "play": { _ in
-            let imageParameter = GeneralParameter.image(source: NSImage(named: NSImage.touchBarPlayPauseTemplateName)!)
-            return (
-                item: .staticButton(title: ""),
-                actions: [
-                    Action(trigger: .singleTap, value: .hidKey(keycode: NX_KEYTYPE_PLAY))
-                ],
-                legacyAction: .none,
-                legacyLongAction: .none,
-                parameters: [.image: imageParameter]
-            )
-        },
+        // Draws its own icon, half of it lit depending on what's playing (PlayPauseBarItem).
+        "play": { decoder in (
+            item: .playPause(litWhilePlaying: try PlayPauseOptions(from: decoder).litWhilePlaying),
+            actions: [
+                Action(trigger: .singleTap, value: .hidKey(keycode: NX_KEYTYPE_PLAY))
+            ],
+            legacyAction: .none,
+            legacyLongAction: .none,
+            parameters: [:]
+        ) },
 
         "next": { _ in
             let imageParameter = GeneralParameter.image(source: NSImage(named: NSImage.touchBarFastForwardTemplateName)!)
@@ -240,6 +269,11 @@ class SupportedTypesHolder {
         ) }
     }
 
+    /// Types whose decoder supplies their action (escape, the media keys…) rather than the preset.
+    func hasFixedActions(_ type: String) -> Bool {
+        return supportedTypes[type] != nil
+    }
+
     func register(typename: String, decoder: @escaping ParametersDecoder) {
         supportedTypes[typename] = decoder
     }
@@ -263,10 +297,13 @@ enum ItemType: Decodable {
     case shellScriptTitledButton(source: SourceProtocol, refreshInterval: Double)
     case timeButton(formatTemplate: String, timeZone: String?, locale: String?)
     case battery(options: BatteryOptions)
-    case cpu(refreshInterval: Double)
+    case cpu(refreshInterval: Double, panel: PerformancePanelOptions)
+    case gpu(refreshInterval: Double, panel: PerformancePanelOptions)
+    case performance(design: PerformanceBarItem.Design, panel: PerformancePanelOptions)
     case dock(autoResize: Bool, filter: String?)
     case volume
     case mute
+    case playPause(litWhilePlaying: PlayPauseIcon.Half)
     case brightness(refreshInterval: Double)
     case weather(interval: Double, units: String, api_key: String, icon_type: String)
     case yandexWeather(interval: Double)
@@ -275,6 +312,7 @@ enum ItemType: Decodable {
     case music(interval: Double, disableMarquee: Bool)
     case group(items: [BarItemDefinition])
     case popover(items: [BarItemDefinition], pressAndHold: Bool, autoClose: Double?, liveIcon: Bool)
+    case cluster(items: [BarItemDefinition], options: ClusterOptions)
     case nightShift
     case dnd
     case pomodoro(workTime: Double, restTime: Double)
@@ -317,7 +355,10 @@ enum ItemType: Decodable {
         case pressAndHold
         case autoClose
         case liveIcon
-        case showIcon, showPercentage, percentInside, showTime, animate, lowThreshold, tapToCycle
+        case showIcon, showPercentage, percentInside, showTime, animate, lowThreshold, tapToCycle, holdOpens
+        case panelCloseSide, panelTiles, panelGraphHours, panelBarMinutes
+        case design, colors
+        case dividers, spacing, itemWidth, padding
     }
 
     enum ItemTypeRaw: String, Decodable {
@@ -327,6 +368,8 @@ enum ItemType: Decodable {
         case timeButton
         case battery
         case cpu
+        case gpu
+        case performance
         case dock
         case volume
         case brightness
@@ -337,6 +380,7 @@ enum ItemType: Decodable {
         case music
         case group
         case popover
+        case cluster
         case nightShift
         case dnd
         case pomodoro
@@ -380,11 +424,32 @@ enum ItemType: Decodable {
             options.animate = try container.decodeIfPresent(Bool.self, forKey: .animate) ?? options.animate
             options.lowThreshold = try container.decodeIfPresent(Int.self, forKey: .lowThreshold) ?? options.lowThreshold
             options.tapToCycle = try container.decodeIfPresent(Bool.self, forKey: .tapToCycle) ?? options.tapToCycle
+            options.holdAction = try container.decodeIfPresent(String.self, forKey: .holdOpens)
+                .flatMap(BatteryOptions.HoldAction.init(rawValue:)) ?? .details
+            options.panel.closeSide = try container.decodeIfPresent(Align.self, forKey: .panelCloseSide)
+            if let tiles = try container.decodeIfPresent([String].self, forKey: .panelTiles) {
+                options.panel.tiles = Set(tiles.compactMap(BatteryPanelOptions.Tile.init(rawValue:)))
+            }
+            if let hours = try container.decodeIfPresent(Int.self, forKey: .panelGraphHours), (1 ... 48).contains(hours) {
+                options.panel.graphHours = hours
+            }
+            if let minutes = try container.decodeIfPresent(Int.self, forKey: .panelBarMinutes), (5 ... 240).contains(minutes) {
+                options.panel.barMinutes = minutes
+            }
             self = .battery(options: options)
             
         case .cpu:
             let refreshInterval = try container.decodeIfPresent(Double.self, forKey: .refreshInterval) ?? 5.0
-            self = .cpu(refreshInterval: refreshInterval)
+            self = .cpu(refreshInterval: refreshInterval, panel: try ItemType.panel(.cpu, container))
+
+        case .gpu:
+            let refreshInterval = try container.decodeIfPresent(Double.self, forKey: .refreshInterval) ?? 2.0
+            self = .gpu(refreshInterval: refreshInterval, panel: try ItemType.panel(.gpu, container))
+
+        case .performance:
+            let design = try container.decodeIfPresent(String.self, forKey: .design)
+                .flatMap(PerformanceBarItem.Design.init(rawValue:)) ?? .chip
+            self = .performance(design: design, panel: try ItemType.panel(.unified, container))
 
         case .dock:
             let autoResize = try container.decodeIfPresent(Bool.self, forKey: .autoResize) ?? false
@@ -425,15 +490,24 @@ enum ItemType: Decodable {
             self = .music(interval: interval, disableMarquee: disableMarquee)
 
         case .group:
-            let items = try container.decode([BarItemDefinition].self, forKey: .items)
+            let items = try container.decodeIfPresent([BarItemDefinition].self, forKey: .items) ?? []
             self = .group(items: items)
 
         case .popover:
-            let items = try container.decode([BarItemDefinition].self, forKey: .items)
+            let items = try container.decodeIfPresent([BarItemDefinition].self, forKey: .items) ?? []
             let pressAndHold = try container.decodeIfPresent(Bool.self, forKey: .pressAndHold) ?? false
             let autoClose = try container.decodeIfPresent(Double.self, forKey: .autoClose)
             let liveIcon = try container.decodeIfPresent(Bool.self, forKey: .liveIcon) ?? true
             self = .popover(items: items, pressAndHold: pressAndHold, autoClose: autoClose, liveIcon: liveIcon)
+
+        case .cluster:
+            let items = try container.decodeIfPresent([BarItemDefinition].self, forKey: .items) ?? []
+            var options = ClusterOptions()
+            options.dividers = try container.decodeIfPresent(Bool.self, forKey: .dividers) ?? options.dividers
+            options.spacing = try container.decodeIfPresent(CGFloat.self, forKey: .spacing) ?? options.spacing
+            options.itemWidth = try container.decodeIfPresent(CGFloat.self, forKey: .itemWidth)
+            options.padding = try container.decodeIfPresent(CGFloat.self, forKey: .padding)
+            self = .cluster(items: items, options: options)
 
         case .nightShift:
             self = .nightShift
@@ -470,6 +544,30 @@ enum ItemType: Decodable {
             let interval = try container.decodeIfPresent(Double.self, forKey: .refreshInterval) ?? 60.0
             self = .upnext(from: from, to: to, maxToShow: maxToShow, autoResize: autoResize)
         }
+    }
+
+    /// A performance page's options: "panelTiles" (only those this page has) and "panelCloseSide".
+    private static func panel(_ kind: PerformancePanelOptions.Kind,
+                              _ container: KeyedDecodingContainer<CodingKeys>) throws -> PerformancePanelOptions {
+        let tiles = try container.decodeIfPresent([String].self, forKey: .panelTiles)
+            .map { Set($0.compactMap(PerformancePanelOptions.Tile.init(rawValue:)).filter(kind.tiles.contains)) }
+        return PerformancePanelOptions(kind: kind, tiles: tiles,
+                                       closeSide: try container.decodeIfPresent(Align.self, forKey: .panelCloseSide),
+                                       palette: PerformancePalette.named(try container.decodeIfPresent(String.self, forKey: .colors)))
+    }
+}
+
+/// "litWhilePlaying": "pause" (the default: the key shows what a tap will do)
+/// or "play" (it shows what's happening).
+private struct PlayPauseOptions: Decodable {
+    let litWhilePlaying: PlayPauseIcon.Half
+
+    private enum CodingKeys: String, CodingKey { case litWhilePlaying }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let value = try container.decodeIfPresent(String.self, forKey: .litWhilePlaying)
+        litWhilePlaying = value == "play" ? .play : .pause
     }
 }
 
@@ -685,6 +783,11 @@ enum GeneralParameter {
     case title(_: String)
     case style(_: ItemStyle)
     case when(_: ItemCondition)
+    case theme(_: Theme.Name)
+    /// A glass key of its own ("glass": true), or a standard one on a glass bar (false).
+    case glass(_: Bool)
+    /// A color the glass is tinted with ("glassTint").
+    case glassTint(_: NSColor)
 }
 
 struct GeneralParameters: Decodable {
@@ -700,11 +803,18 @@ struct GeneralParameters: Decodable {
         case matchAppId
         case style // stands for all ItemStyle keys, which are decoded together
         case when
+        case theme
+        case glass
+        case glassTint
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         var result: [GeneralParameters.CodingKeys: GeneralParameter] = [:]
+
+        if let theme = try container.decodeIfPresent(String.self, forKey: .theme).flatMap(Theme.Name.init(rawValue:)) {
+            result[.theme] = .theme(theme)
+        }
 
         result[.style] = .style(try ItemStyle(from: decoder))
 
@@ -729,6 +839,14 @@ struct GeneralParameters: Decodable {
 
         if let title = try container.decodeIfPresent(String.self, forKey: .title) {
             result[.title] = .title(title)
+        }
+
+        if let glass = try container.decodeIfPresent(Bool.self, forKey: .glass) {
+            result[.glass] = .glass(glass)
+        }
+
+        if let tint = try container.decodeIfPresent(String.self, forKey: .glassTint)?.namedOrHexColor {
+            result[.glassTint] = .glassTint(tint)
         }
 
         if let condition = try container.decodeIfPresent(ItemCondition.self, forKey: .when) {

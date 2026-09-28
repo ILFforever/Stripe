@@ -32,6 +32,8 @@ class CustomButtonTouchBarItem: NSCustomTouchBarItem, NSGestureRecognizerDelegat
     var finishViewConfiguration: ()->() = {}
     
     private var button: NSButton!
+    /// The look it was built with ("theme" on the item); kept for later refreshes.
+    let theme = Theme.current
     private var longClick: LongPressGestureRecognizer!
     private var multiClick: MultiClickGestureRecognizer!
 
@@ -56,6 +58,11 @@ class CustomButtonTouchBarItem: NSCustomTouchBarItem, NSGestureRecognizerDelegat
         multiClick.delegate = self
         multiClick.isDoubleClickEnabled = false
         multiClick.isTripleClickEnabled = false
+        multiClick.onTouch = { [weak self] down in
+            self?.isPressed = down
+            self?.holdTouchChanged(down)
+        }
+        multiClick.handlesReleaseHaptic = { [weak self] in self?.armToggleFeel() ?? false }
 
         reinstallButton()
         button.attributedTitle = displayedTitle
@@ -82,6 +89,107 @@ class CustomButtonTouchBarItem: NSCustomTouchBarItem, NSGestureRecognizerDelegat
         }
     }
 
+    /// Whether the item is on (a toggle that's enabled, or its "activeWhen" rule
+    /// holds); shows `style.activeBackground`.
+    var isActive = false {
+        didSet {
+            guard isActive != oldValue else { return }
+            applyStateBackground()
+            applyActiveLook()
+            playToggleFeelIfArmed()
+        }
+    }
+
+    /// For items that know their own state: sets `isActive` unless the preset
+    /// decides it with an "activeWhen" rule.
+    func setBuiltInActive(_ active: Bool) {
+        hasOnOffState = true
+        if style.activeWhen == nil { isActive = active }
+    }
+
+    // MARK: Toggle feel
+
+    /// Whether the item has an on/off state: a toggle that reports it, or an "activeWhen" rule.
+    private var hasOnOffState = false
+    /// Until when a tap's release is waiting for the toggle to report its new state.
+    private var toggleFeelArmedUntil = Date.distantPast
+
+    /// A toggle's release buzzes by what the tap did (its on or off feel)
+    /// once its state changes, instead of the usual release tick. Returns
+    /// whether it will, so the plain tick is skipped.
+    private func armToggleFeel() -> Bool {
+        let haptic = style.haptic
+        guard hasOnOffState || style.activeWhen != nil, haptic.toggleFeel,
+              haptic.when == .both || haptic.when == .release else { return false }
+        // Scripted "activeWhen" checks can take a few seconds to report back.
+        toggleFeelArmedUntil = Date().addingTimeInterval(style.activeWhen == nil ? 1.5 : 4)
+        return true
+    }
+
+    private func playToggleFeelIfArmed() {
+        guard Date() < toggleFeelArmedUntil else { return }
+        toggleFeelArmedUntil = .distantPast
+        HapticFeedback.instance.play(style.haptic.toggleFeel(turnedOn: isActive))
+    }
+
+    // MARK: Hold to repeat
+
+    /// Set for brightness and volume keys: holding one keeps stepping the level.
+    var holdRepeat: HoldRepeat?
+    private var holdTimer: Timer?
+    /// Whether this touch stepped by being held, so letting go isn't also a tap.
+    private var steppedByHolding = false
+    /// Steps so far in this hold, for the haptic ramp.
+    private var holdSteps = 0
+
+    private func holdTouchChanged(_ down: Bool) {
+        holdTimer?.invalidate()
+        holdTimer = nil
+        guard down else { return }
+        steppedByHolding = false
+        holdSteps = 0
+        guard let key = holdRepeat, style.holdRepeat, !actions.contains(where: { $0.trigger == .longTap }) else { return }
+        holdTimer = CustomButtonTouchBarItem.timer(after: 0.4, repeats: false) { [weak self] in
+            self?.holdTimer = CustomButtonTouchBarItem.timer(after: 0.08, repeats: true) { [weak self] in
+                self?.holdStep(key)
+            }
+            self?.holdStep(key)
+        }
+    }
+
+    /// A timer that also fires while a finger is on the bar, when the run loop
+    /// is tracking touches and default-mode timers wait.
+    private static func timer(after interval: TimeInterval, repeats: Bool, _ block: @escaping () -> Void) -> Timer {
+        let timer = Timer(timeInterval: interval, repeats: repeats) { _ in block() }
+        RunLoop.main.add(timer, forMode: .common)
+        return timer
+    }
+
+    /// One step while held: the system overlay, and a buzz on the hold's ramp.
+    private func holdStep(_ key: HoldRepeat) {
+        steppedByHolding = true
+        guard let level = key.step(by: style.holdStep) else {
+            holdTimer?.invalidate() // at the end already
+            holdTimer = nil
+            return
+        }
+        key.showOverlay(level)
+        if style.haptic.when != .off {
+            HapticFeedback.instance.tap(type: key.strength(atStep: holdSteps).type)
+        }
+        holdSteps += 1
+    }
+
+    deinit {
+        holdTimer?.invalidate()
+    }
+
+    /// True while a finger is on the item; shows `style.pressedBackground`.
+    /// Settable so debug hooks can hold an item down for a screenshot.
+    var isPressed = false {
+        didSet { if isPressed != oldValue { applyStateBackground() } }
+    }
+
     /// Extra space on each side of the content, for items whose content would
     /// otherwise sit tight against the key's edges (e.g. the battery).
     var contentPadding: CGFloat = 0 {
@@ -90,17 +198,41 @@ class CustomButtonTouchBarItem: NSCustomTouchBarItem, NSGestureRecognizerDelegat
 
     var style = ItemStyle() {
         didSet {
+            multiClick.haptic = style.haptic
+            longClick.haptic = style.haptic
             if let symbolImage = style.symbolImage {
                 image = symbolImage
             }
             reinstallButton()
             button.attributedTitle = displayedTitle
+            if isActive { applyActiveLook() }
         }
     }
 
     /// The title as drawn: `attributedTitle` with the item's style applied.
     var displayedTitle: NSAttributedString {
+        if isActive {
+            let title = style.activeTitle.map { $0.defaultTouchbarAttributedString } ?? attributedTitle
+            return style.whileActive.apply(to: title)
+        }
         return style.apply(to: attributedTitle)
+    }
+
+    /// The icon as drawn: while on, the "activeSymbol" (if set) in place of the
+    /// item's own, or the item's own icon in "activeIconColor".
+    private var displayedImage: NSImage? {
+        guard isActive else { return image }
+        if style.activeSymbol != nil, let symbol = style.whileActive.symbolImage { return symbol }
+        if let color = style.activeIconColor, let image = image, image.isTemplate { return image.tinted(color) }
+        return image
+    }
+
+    /// Shows the on or off look: title, icon, and the icon tint for icons the item draws itself.
+    private func applyActiveLook() {
+        guard let button = button else { return }
+        button.image = displayedImage
+        button.attributedTitle = displayedTitle
+        button.imagePosition = displayedTitle.length > 0 ? .imageLeading : .imageOnly
     }
 
     var title: String {
@@ -114,7 +246,9 @@ class CustomButtonTouchBarItem: NSCustomTouchBarItem, NSGestureRecognizerDelegat
 
     var attributedTitle: NSAttributedString {
         didSet {
-            button?.imagePosition = attributedTitle.length > 0 ? .imageLeading : .imageOnly
+            // Widgets often set the same title again (a clock every second); skip the redraw.
+            guard !attributedTitle.isEqual(to: oldValue) else { return }
+            button?.imagePosition = displayedTitle.length > 0 ? .imageLeading : .imageOnly
             button?.attributedTitle = displayedTitle
             if isAwaitingFirstTitle, attributedTitle.length > 0 { reveal() }
         }
@@ -127,6 +261,11 @@ class CustomButtonTouchBarItem: NSCustomTouchBarItem, NSGestureRecognizerDelegat
     /// until the first title arrives, then fade in, instead of showing a
     /// placeholder. Fades in after two seconds regardless.
     func hideUntilFirstTitle() {
+        // The MTMR theme shows "⏳" until then, as MTMR did.
+        guard theme.fadeInFirstTitle else {
+            attributedTitle = "⏳".defaultTouchbarAttributedString
+            return
+        }
         isAwaitingFirstTitle = true
         button.alphaValue = 0
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.reveal() }
@@ -143,7 +282,7 @@ class CustomButtonTouchBarItem: NSCustomTouchBarItem, NSGestureRecognizerDelegat
 
     var image: NSImage? {
         didSet {
-            button.image = image
+            button.image = displayedImage
         }
     }
 
@@ -152,15 +291,16 @@ class CustomButtonTouchBarItem: NSCustomTouchBarItem, NSGestureRecognizerDelegat
         let image = button.image
         let cell = CustomButtonCell(parentItem: self)
         button.cell = cell
-        (button as? CustomHeightButton)?.horizontalPadding = max(style.cornerRadius != nil ? 10 : 0, contentPadding)
-        button.wantsLayer = style.cornerRadius != nil
-        button.layer?.cornerRadius = style.cornerRadius ?? 0
+        (button as? CustomHeightButton)?.horizontalPadding = max(drawnRadius != nil ? 10 : 0, contentPadding)
+        button.wantsLayer = drawnRadius != nil
+        button.layer?.cornerRadius = drawnRadius ?? 0
         button.layer?.backgroundColor = nil
-        if let color = backgroundColor, let radius = style.cornerRadius {
+        if let color = fillColor, let radius = drawnRadius {
             // Custom-radius background: draw it on the layer, not with a bezel.
             button.isBordered = false
             button.bezelStyle = .inline
-            button.layer?.backgroundColor = color.cgColor
+            // Glass is drawn by the cell (CustomButtonCell), under the icon and title.
+            button.layer?.backgroundColor = drawsGlass ? nil : color.cgColor
             button.layer?.cornerRadius = radius
         } else if let color = backgroundColor {
             cell.isBordered = true
@@ -181,7 +321,94 @@ class CustomButtonTouchBarItem: NSCustomTouchBarItem, NSGestureRecognizerDelegat
         view.addGestureRecognizer(longClick)
         // view.addGestureRecognizer(singleClick)
         view.addGestureRecognizer(multiClick)
+        applyStateBackground()
         finishViewConfiguration()
+    }
+
+    /// An SF Symbol sized for a key, as Stripe's designs use them.
+    func stripeSymbol(_ name: String) -> NSImage? {
+        let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 16, weight: .regular))
+        image?.isTemplate = true
+        return image
+    }
+
+    /// The system's gray key, as it looks on the bar.
+    static let standardKeyColor = NSColor(srgbRed: 0x44 / 255, green: 0x44 / 255, blue: 0x44 / 255, alpha: 1)
+
+    /// The background drawn behind the key. The system draws its gray key only
+    /// at its own rounding, so with a shape set we draw that gray ourselves.
+    private var fillColor: NSColor? {
+        backgroundColor ?? (isBordered && drawnRadius != nil
+            ? (usesGlass ? CustomButtonTouchBarItem.glassFill : CustomButtonTouchBarItem.standardKeyColor) : nil)
+    }
+
+    /// Translucent "glass" keys, so the bar's background shows through: the
+    /// preset's "glassKeys" (the Theme's Keys), set before its items are built.
+    static var glass = false
+
+    /// This key's own choice ("glass" on the item), else the bar's.
+    var glass: Bool? {
+        didSet { if glass != oldValue { reinstallButton() } }
+    }
+
+    var usesGlass: Bool { glass ?? CustomButtonTouchBarItem.glass }
+
+    /// The bar's glass strength and tint, set with `glass`.
+    static var glassStyle = GlassStyle.balanced
+    static var glassTint: NSColor?
+
+    /// This key's own glass tint ("glassTint"), else the bar's.
+    var glassTint: NSColor? {
+        didSet { button?.needsDisplay = true }
+    }
+
+    var effectiveGlassTint: NSColor? { glassTint ?? CustomButtonTouchBarItem.glassTint }
+
+    /// Whether the key is drawn as glass right now: a glass key with no color of
+    /// its own, and no pressed or on color showing over it.
+    var drawsGlass: Bool {
+        guard usesGlass, isBordered, backgroundColor == nil else { return false }
+        if isPressed, style.pressedBackground != nil { return false }
+        if isActive, !isPressed, style.activeBackground != nil { return false }
+        return true
+    }
+
+    var glassRadius: CGFloat { drawnRadius ?? 6 }
+    static let glassFill = NSColor(white: 1, alpha: 0.16)
+
+    /// The rounding when we draw the key ourselves (the system's key has its own).
+    private var drawnRadius: CGFloat? {
+        style.cornerRadius ?? (usesGlass && isBordered && backgroundColor == nil ? 6 : nil)
+    }
+
+    /// Our stand-in for the gray key lightens while touched, as the system's does.
+    private var drawnStandardPressed: NSColor? {
+        guard backgroundColor == nil, fillColor != nil else { return nil }
+        // Glass brightens rather than turning solid gray.
+        return usesGlass ? NSColor(white: 1, alpha: 0.32)
+            : NSColor(srgbRed: 0x63 / 255, green: 0x63 / 255, blue: 0x66 / 255, alpha: 1)
+    }
+
+    /// The pressed or active color when one applies, else the normal background.
+    /// Only colors change here, so a press doesn't rebuild the button mid-touch.
+    private func applyStateBackground() {
+        guard let button = button else { return }
+        var color = fillColor
+        if isPressed, let pressed = style.pressedBackground ?? drawnStandardPressed {
+            color = pressed
+        } else if isActive, let active = style.activeBackground {
+            color = active
+        }
+        if button.isBordered {
+            button.bezelColor = color
+        } else if color != nil || button.wantsLayer {
+            button.wantsLayer = true
+            // Glass is drawn by the cell; a pressed or on color shows solid over it.
+            button.layer?.backgroundColor = drawsGlass ? nil : color?.cgColor
+            button.layer?.cornerRadius = drawnRadius ?? 6
+            if usesGlass { button.needsDisplay = true }
+        }
     }
 
     func gestureRecognizer(_ gestureRecognizer: NSGestureRecognizer, shouldRequireFailureOf otherGestureRecognizer: NSGestureRecognizer) -> Bool {
@@ -201,6 +428,10 @@ class CustomButtonTouchBarItem: NSCustomTouchBarItem, NSGestureRecognizerDelegat
     }
     
     @objc func handleGestureSingleTap() {
+        if steppedByHolding {
+            steppedByHolding = false
+            return
+        }
         callActions(for: .singleTap)
     }
     
@@ -237,15 +468,40 @@ class CustomHeightButton: NSButton {
         didSet { invalidateIntrinsicContentSize() }
     }
 
+    /// A key we draw ourselves fills exactly the bar's height. Left to NSButton,
+    /// an icon's alignment insets (SF Symbols like sun.max have them) stretch the
+    /// frame past the bar, cutting off the key's rounded corners.
+    override var alignmentRectInsets: NSEdgeInsets {
+        isBordered ? super.alignmentRectInsets : NSEdgeInsetsZero
+    }
+
+    /// Called after each layout, e.g. to keep an overlay aligned with the image.
+    var onLayout: (() -> Void)?
+
+    override func layout() {
+        super.layout()
+        onLayout?()
+    }
+
+    private static var measured: (title: NSAttributedString, size: NSSize)?
+
+    /// A multi-line title's size, remembered for the last title measured: laying
+    /// the text out is the costly part, and it's asked for on every layout and draw.
+    static func measure(_ title: NSAttributedString) -> NSSize {
+        if let last = measured, last.title.isEqual(to: title) { return last.size }
+        let size = title.boundingRect(with: NSSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude),
+                                      options: [.usesLineFragmentOrigin]).size
+        measured = (title.copy() as! NSAttributedString, size)
+        return size
+    }
+
     override var intrinsicContentSize: NSSize {
         var size = super.intrinsicContentSize
         size.height = 30
         let imageWidth = image.map { $0.size.width + 4 } ?? 0
         // NSButton measures a multi-line title as one long line; use the widest line.
         if attributedTitle.string.contains("\n") {
-            let textWidth = ceil(attributedTitle.boundingRect(
-                with: NSSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude),
-                options: [.usesLineFragmentOrigin]).width)
+            let textWidth = ceil(CustomHeightButton.measure(attributedTitle).width)
             size.width = max(textWidth, minimumTitleWidth) + imageWidth + 2 * CustomHeightButton.multilineInset
         } else if minimumTitleWidth > 0 {
             // Holds the space before the first title arrives, too.
@@ -279,14 +535,28 @@ class CustomButtonCell: NSButtonCell {
         return rect // need that so content may better fit in button with very limited width
     }
 
+    /// Glass keys: the pane first, then the icon and title over it.
+    override func draw(withFrame cellFrame: NSRect, in controlView: NSView) {
+        if let item = parentItem, item.drawsGlass {
+            GlassPainter.draw(in: controlView, rect: controlView.bounds, radius: item.glassRadius,
+                              pressed: item.isPressed, style: CustomButtonTouchBarItem.glassStyle,
+                              tint: item.effectiveGlassTint)
+            NSGraphicsContext.saveGraphicsState()
+            GlassPainter.contentShadow.set()
+            super.draw(withFrame: cellFrame, in: controlView)
+            NSGraphicsContext.restoreGraphicsState()
+            return
+        }
+        super.draw(withFrame: cellFrame, in: controlView)
+    }
+
     /// NSButtonCell lays a title out as one line, so a second line would hang off
     /// the bottom of the key. Draw multi-line titles as a block centered in the key.
     override func drawTitle(_ title: NSAttributedString, withFrame frame: NSRect, in controlView: NSView) -> NSRect {
         guard title.string.contains("\n") else {
             return super.drawTitle(title, withFrame: frame, in: controlView)
         }
-        let size = title.boundingRect(with: NSSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude),
-                                      options: [.usesLineFragmentOrigin]).size
+        let size = CustomHeightButton.measure(title)
         let bounds = controlView.bounds
         // With an icon, stay in the space beside it; otherwise use the whole key.
         let midX = image == nil ? bounds.midX : frame.midX
@@ -318,6 +588,12 @@ final class MultiClickGestureRecognizer: NSClickGestureRecognizer {
     
     public var isDoubleClickEnabled = true
     public var isTripleClickEnabled = true
+    /// Called with true when a touch starts and false when it ends.
+    var onTouch: ((Bool) -> Void)?
+    /// How touches buzz; the item sets it from its style.
+    var haptic = HapticStyle()
+    /// Lets the item play its own release buzz (a toggle's on/off feel); returns true if it will.
+    var handlesReleaseHaptic: (() -> Bool)?
 
     override var action: Selector? {
         get {
@@ -340,13 +616,45 @@ final class MultiClickGestureRecognizer: NSClickGestureRecognizer {
         fatalError("init(target:action:doubleAction:tripleAction) is only support atm")
     }
     
+    /// Whether the key shows as pressed; released once, however the touch ends.
+    private var touching = false {
+        didSet { if touching != oldValue { onTouch?(touching) } }
+    }
+
     override func touchesBegan(with event: NSEvent) {
-        HapticFeedback.instance.tap(type: .click)
+        HapticFeedback.instance.play(haptic, .press)
+        touching = true
         super.touchesBegan(with: event)
     }
 
+    /// Sliding off the key lets it go straight away, like a button.
+    override func touchesMoved(with event: NSEvent) {
+        if touching, let view = view,
+           let touch = event.touches(matching: .moved, in: view).first,
+           !view.bounds.contains(touch.location(in: view)) {
+            touching = false
+        }
+        super.touchesMoved(with: event)
+    }
+
+    override func touchesCancelled(with event: NSEvent) {
+        touching = false
+        super.touchesCancelled(with: event)
+    }
+
+    /// A touch that moved too far fails the click, and a failed recognizer hears
+    /// no more touches (no touchesEnded), so it's released here, where every
+    /// outcome ends up.
+    override func reset() {
+        touching = false
+        super.reset()
+    }
+
     override func touchesEnded(with event: NSEvent) {
-        HapticFeedback.instance.tap(type: .back)
+        if handlesReleaseHaptic?() != true {
+            HapticFeedback.instance.play(haptic, .release)
+        }
+        touching = false
         super.touchesEnded(with: event)
         _clickCount += 1
         
@@ -385,6 +693,8 @@ final class MultiClickGestureRecognizer: NSClickGestureRecognizer {
 
 class LongPressGestureRecognizer: NSPressGestureRecognizer {
     var recognizeTimeout = 0.4
+    /// How touches buzz; the item sets it from its style.
+    var haptic = HapticStyle()
     private var timer: Timer?
     
     override func touchesBegan(with event: NSEvent) {
@@ -423,7 +733,7 @@ class LongPressGestureRecognizer: NSPressGestureRecognizer {
     @objc private func onTimer() {
         if let target = self.target, let action = self.action {
             target.performSelector(onMainThread: action, with: self, waitUntilDone: false)
-            HapticFeedback.instance.tap(type: .strong)
+            HapticFeedback.instance.play(haptic, .hold)
         }
     }
     
@@ -437,5 +747,19 @@ extension String {
         let attrTitle = NSMutableAttributedString(string: self, attributes: [.foregroundColor: NSColor.white, .font: NSFont.systemFont(ofSize: 15, weight: .regular), .baselineOffset: 1])
         attrTitle.setAlignment(.center, range: NSRange(location: 0, length: count))
         return attrTitle
+    }
+}
+
+extension NSImage {
+    /// A template image drawn in `color`. (The Touch Bar ignores a button's tint color.)
+    func tinted(_ color: NSColor) -> NSImage {
+        let image = NSImage(size: size, flipped: false) { rect in
+            self.draw(in: rect)
+            color.set()
+            rect.fill(using: .sourceAtop)
+            return true
+        }
+        image.isTemplate = false
+        return image
     }
 }

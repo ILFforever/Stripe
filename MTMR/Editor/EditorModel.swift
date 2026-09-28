@@ -29,6 +29,34 @@ final class EditorItem: ObservableObject, Identifiable {
     var type: String { fields["type"]?.string ?? "unknown" }
     var info: ItemTypeInfo { ItemCatalog.info(for: type) }
     var isContainer: Bool { children != nil }
+    /// A group, folder or popover with nothing in it: hidden on the real bar, and
+    /// a place to drop items in the editor.
+    var isEmptyContainer: Bool {
+        ["cluster", "group", "popover"].contains(type) && (children?.isEmpty ?? true)
+    }
+
+    /// Drawn Stripe's way (see StripeKeys) rather than MTMR's.
+    var usesStripeLook: Bool { fields["theme"]?.string != "mtmr" }
+
+    /// Drawn without a key unless it's given one, in the look it has (see StripeKeys).
+    var borderlessByDefault: Bool {
+        if usesStripeLook {
+            if StripeKeys.keyedToggles.contains(type) { return false }
+            if type == "cpu" || StripeKeys.bareReadouts.contains(type) { return true }
+        }
+        return info.borderlessByDefault
+    }
+
+    /// The corner rounding it has with nothing set: Stripe's text buttons are pills.
+    var defaultCornerRadius: Double {
+        usesStripeLook && StripeKeys.pillTypes.contains(type) ? Double(StripeKeys.pillRadius) : 6
+    }
+
+    /// The rounding it's drawn with.
+    var cornerRadius: Double {
+        if fields["style"]?.string == "pill" { return Double(ItemStyle.barHeight / 2) }
+        return fields["cornerRadius"]?.number ?? defaultCornerRadius
+    }
 
     var align: String {
         get { fields["align"]?.string ?? (type == "escape" ? "left" : "center") }
@@ -124,6 +152,8 @@ final class EditorItem: ObservableObject, Identifiable {
 final class PresetDocument: ObservableObject {
     @Published private(set) var path: String
     @Published var items: [EditorItem] = []
+    /// The bar's own settings (background, glass keys): the preset's "bar".
+    @Published private(set) var bar: [String: JSONValue] = [:]
     @Published var loadError: String?
     @Published var lastSaved: Date?
 
@@ -168,11 +198,11 @@ final class PresetDocument: ObservableObject {
         loadError = nil
         guard let text = try? String(contentsOfFile: path, encoding: .utf8) else {
             items = []
+            bar = [:]
             return
         }
         do {
-            let root = try JSONValue.parse(text)
-            items = (root.array ?? []).compactMap { $0.object }.map { EditorItem(fields: $0, document: self) }
+            read(try JSONValue.parse(text))
             savedText = serialized
         } catch {
             items = []
@@ -268,6 +298,22 @@ final class PresetDocument: ObservableObject {
         return search(items)
     }
 
+    /// The folder, group or popover an item is inside, if any.
+    func parent(of item: EditorItem) -> EditorItem? {
+        return allContainers().first { $0.children?.contains { $0 === item } ?? false }
+    }
+
+    /// The containers an item is inside, outermost first.
+    func ancestors(of item: EditorItem) -> [EditorItem] {
+        var chain: [EditorItem] = []
+        var current = item
+        while let parent = parent(of: current) {
+            chain.insert(parent, at: 0)
+            current = parent
+        }
+        return chain
+    }
+
     private func allContainers() -> [EditorItem] {
         func collect(_ list: [EditorItem]) -> [EditorItem] {
             return list.filter { $0.isContainer } + list.flatMap { collect($0.children ?? []) }
@@ -312,8 +358,36 @@ final class PresetDocument: ObservableObject {
         }
     }
 
+    /// Always a Stripe document; a plain list (MTMR's format) is read, and
+    /// becomes a document the next time it's saved.
     private var serialized: String {
-        return JSONValue.array(items.map { $0.json }).pretty() + "\n"
+        var root: [String: JSONValue] = ["stripe": .number(1), "items": .array(items.map { $0.json })]
+        if !bar.isEmpty { root["bar"] = .object(bar) }
+        return JSONValue.object(root).pretty() + "\n"
+    }
+
+    private func read(_ root: JSONValue) {
+        let list = root.array ?? root.object?["items"]?.array ?? []
+        bar = root.object?["bar"]?.object ?? [:]
+        items = list.compactMap { $0.object }.map { EditorItem(fields: $0, document: self) }
+    }
+
+    /// Sets one of the bar's settings, e.g. "background.gradient" or "glassKeys".
+    func setBar(_ path: String, _ value: JSONValue?) {
+        var updated = bar
+        updated[path: path] = value
+        guard updated != bar else { return }
+        bar = updated
+        scheduleSave()
+    }
+
+    /// Replaces the bar's background with another kind (or none).
+    func setBarBackground(_ background: [String: JSONValue]?) {
+        var updated = bar
+        updated["background"] = background.map { .object($0) }
+        guard updated != bar else { return }
+        bar = updated
+        scheduleSave()
     }
 
     func undo() {
@@ -332,7 +406,7 @@ final class PresetDocument: ObservableObject {
 
     private func restore(_ text: String) {
         guard let root = try? JSONValue.parse(text) else { return }
-        items = (root.array ?? []).compactMap { $0.object }.map { EditorItem(fields: $0, document: self) }
+        read(root)
         write(text)
     }
 
@@ -398,17 +472,86 @@ struct ItemTypeInfo {
     let category: String
     let defaults: [String: JSONValue]
     let fields: [FieldSpec]
-    var isContainer: Bool { type == "group" || type == "popover" }
+    /// A ready-made item the library adds whole (e.g. brightness down and up in
+    /// a group); its "type" is the item's real type.
+    var template: [String: JSONValue]? = nil
+    var isContainer: Bool { ["group", "popover", "cluster"].contains(template?["type"]?.string ?? type) }
+    /// Drawn without a key unless the preset asks for one ("bordered": true).
+    var borderlessByDefault: Bool {
+        ["timeButton", "music", "dnd", "nightShift", "darkMode", "appleScriptTitledButton"].contains(type)
+    }
 
     // What the inspector offers for this type, so it only shows controls that do something.
 
     /// Swipe gestures aren't drawn on the bar.
     var isVisibleOnBar: Bool { type != "swipe" }
     /// Buttons (and popovers, which are buttons) take the full set of styling options.
-    var supportsButtonStyling: Bool { !["group", "volume", "brightness", "swipe"].contains(type) }
-    /// Groups show just an icon or title for their collapsed button.
-    var supportsIcon: Bool { supportsButtonStyling || type == "group" }
-    var supportsActions: Bool { !isContainer && !["volume", "brightness", "swipe"].contains(type) }
+    /// Buttons (popovers and folders are buttons too). Dock and Up Next are scrolling strips.
+    var supportsButtonStyling: Bool { !["cluster", "volume", "brightness", "swipe", "dock", "upnext"].contains(type) }
+    /// Clusters take a background and shape for the key their items share.
+    var supportsBackground: Bool { supportsButtonStyling || type == "cluster" }
+    var supportsIcon: Bool { supportsButtonStyling }
+    var supportsActions: Bool { !isContainer && !["volume", "brightness", "swipe", "dock", "upnext"].contains(type) }
+    /// The built-in designs the Style tab offers for this type, and the preset
+    /// key that picks one. MTMR's classic look is one of them where it differs.
+    var designs: (key: String, fallback: String, options: [(id: String, name: String, help: String)])? {
+        if type == "performance" {
+            return ("design", PerformanceBarItem.Design.chip.rawValue, [
+                ("chip", "Chip", "A chip icon, and each figure in its graph color"),
+                ("minimal", "Minimal", "Small CPU and GPU labels beside bold figures"),
+                ("graph", "Graph", "A thin meter beside each figure"),
+            ])
+        }
+        guard let classic = mtmrLook else { return nil }
+        return ("theme", "stripe", [("stripe", "Stripe", "Stripe's look"), ("mtmr", "MTMR classic", classic)])
+    }
+
+    /// Which performance page holding it opens, if any.
+    var performancePage: PerformancePanelOptions.Kind? {
+        switch type {
+        case "cpu": return .cpu
+        case "gpu": return .gpu
+        case "performance": return .unified
+        default: return nil
+        }
+    }
+
+    /// What the MTMR look changes for this type, if it has one ("theme": "mtmr").
+    var mtmrLook: String? {
+        switch type {
+        case "battery": return "Text, like ⚡️64% with the time remaining raised beside it"
+        case "play": return "A static play/pause icon"
+        case "mute": return "A static mute icon"
+        case "volume", "brightness": return "A plain slider, without the panel and end icons"
+        case "escape": return "Regular-weight “esc”"
+        case "delete": return "“del” as text"
+        case "brightnessDown", "brightnessUp", "illuminationDown", "illuminationUp":
+            return "MTMR's own icon, on a key of its own"
+        case "staticButton": return "A standard key with regular-weight text"
+        case "appleScriptTitledButton": return "A standard key with regular text; shows ⏳ until its first value"
+        case "shellScriptTitledButton", "cpu", "currency", "weather", "yandexWeather",
+             "inputsource", "music", "network":
+            return "Shows ⏳ until its first value, instead of fading in"
+        default: return nil
+        }
+    }
+
+    /// Brightness and volume keys, which keep stepping while held.
+    var repeatsWhileHeld: Bool { ["brightnessUp", "brightnessDown", "volumeUp", "volumeDown"].contains(type) }
+    /// Volume and brightness sliders, which tick as they're dragged.
+    var isSlider: Bool { type == "volume" || type == "brightness" }
+    /// What "active" means for items that know their own on/off state.
+    var builtInActiveState: String? {
+        switch type {
+        case "dnd": return "Do Not Disturb is on"
+        case "nightShift": return "Night Shift is on"
+        case "darkMode": return "Dark Mode is on"
+        case "mute": return "the sound is muted"
+        case "play": return "something is playing"
+        case "pomodoro": return "a timer is running"
+        default: return nil
+        }
+    }
     /// Media keys and similar read best as icons alone (on the bar canvas too).
     var isIconOnly: Bool { category == "Media" || category == "Keys" || type == "close" }
 }
@@ -419,7 +562,7 @@ enum ItemCatalog {
     static let all: [ItemTypeInfo] = [
         // Buttons
         ItemTypeInfo(type: "staticButton", name: "Button", symbol: "rectangle.fill", category: "Buttons",
-                     defaults: ["title": .string("Button"), "style": .string("pill"), "background": .string("#3A3A3C")],
+                     defaults: ["title": .string("Button")],
                      fields: [FieldSpec(path: "title", label: "Title", kind: .text(placeholder: "Button"))]),
         ItemTypeInfo(type: "shellScriptTitledButton", name: "Shell Script", symbol: "terminal", category: "Buttons",
                      defaults: ["source": .object(["inline": .string("date +%H:%M:%S")]), "refreshInterval": .number(5)],
@@ -435,14 +578,21 @@ enum ItemCatalog {
         // Keys
         simple("escape", "Escape", "escape", "Keys"),
         simple("delete", "Delete", "delete.left", "Keys"),
-        simple("brightnessUp", "Brightness Up", "sun.max", "Keys"),
+        // Each ready-made pair, then its keys on their own, down before up.
+        pair("brightness", "Brightness", "sun.max", down: "brightnessDown", up: "brightnessUp"),
         simple("brightnessDown", "Brightness Down", "sun.min", "Keys"),
-        simple("illuminationUp", "Keyboard Light Up", "light.max", "Keys"),
+        simple("brightnessUp", "Brightness Up", "sun.max", "Keys"),
+        pair("keyboardLight", "Keyboard Light", "light.max", down: "illuminationDown", up: "illuminationUp"),
         simple("illuminationDown", "Keyboard Light Down", "light.min", "Keys"),
+        simple("illuminationUp", "Keyboard Light Up", "light.max", "Keys"),
 
         // Media
+        // The ready-made groups first, then each key on its own.
+        group("media", "Media Controls", "playpause.fill", ["previous", "play", "next"], category: "Media"),
+        pair("volume", "Volume", "speaker.wave.2.fill", down: "volumeDown", up: "volumeUp", category: "Media"),
         simple("previous", "Previous", "backward.fill", "Media"),
-        simple("play", "Play / Pause", "playpause.fill", "Media"),
+        ItemTypeInfo(type: "play", name: "Play / Pause", symbol: "playpause.fill", category: "Media", defaults: [:],
+                     fields: [FieldSpec(path: "litWhilePlaying", label: "Lit while playing", kind: .choice(["pause", "play"]))]),
         simple("next", "Next", "forward.fill", "Media"),
         simple("volumeDown", "Volume Down", "speaker.wave.1", "Media"),
         simple("volumeUp", "Volume Up", "speaker.wave.3", "Media"),
@@ -458,6 +608,9 @@ enum ItemCatalog {
                               FieldSpec(path: "locale", label: "Locale", kind: .text(placeholder: "e.g. en_GB"))]),
         ItemTypeInfo(type: "cpu", name: "CPU", symbol: "cpu", category: "Status", defaults: ["refreshInterval": .number(3)],
                      fields: [FieldSpec(path: "refreshInterval", label: "Refresh every (s)", kind: .number(placeholder: "5"))]),
+        ItemTypeInfo(type: "gpu", name: "GPU", symbol: "cube", category: "Status", defaults: [:],
+                     fields: [FieldSpec(path: "refreshInterval", label: "Refresh every (s)", kind: .number(placeholder: "2"))]),
+        ItemTypeInfo(type: "performance", name: "CPU + GPU", symbol: "cpu", category: "Status", defaults: [:], fields: []),
         ItemTypeInfo(type: "network", name: "Network Speed", symbol: "arrow.up.arrow.down", category: "Status", defaults: ["flip": .bool(true)],
                      fields: [FieldSpec(path: "flip", label: "Upload on top", kind: .toggle(default: false)),
                               FieldSpec(path: "units", label: "Units", kind: .choice(["dynamic", "B/s", "KB/s", "MB/s", "GB/s"]))]),
@@ -505,14 +658,22 @@ enum ItemCatalog {
                      fields: [FieldSpec(path: "refreshInterval", label: "Refresh every (s)", kind: .number(placeholder: "0.5"))]),
 
         // Containers
+        // A neutral icon until it's given one: with a volume slider first inside,
+        // the icon follows the volume anyway ("liveIcon").
         ItemTypeInfo(type: "popover", name: "Popover", symbol: "rectangle.expand.vertical", category: "Containers",
-                     defaults: ["symbol": .string("speaker.wave.2.fill"), "pressAndHold": .bool(true)],
+                     defaults: ["symbol": .string("ellipsis.circle"), "pressAndHold": .bool(true)],
                      fields: [FieldSpec(path: "pressAndHold", label: "Press and hold to slide", kind: .toggle(default: false)),
                               FieldSpec(path: "liveIcon", label: "Icon shows the volume level", kind: .toggle(default: true)),
                               FieldSpec(path: "autoClose", label: "Auto-close after (s)", kind: .number(placeholder: "never"))]),
-        ItemTypeInfo(type: "group", name: "Group", symbol: "folder", category: "Containers",
+        ItemTypeInfo(type: "cluster", name: "Group", symbol: "rectangle.split.3x1", category: "Containers",
+                     defaults: ["itemWidth": .number(40)],
+                     fields: [FieldSpec(path: "dividers", label: "Dividers between items", kind: .toggle(default: false)),
+                              FieldSpec(path: "itemWidth", label: "Minimum item width", kind: .number(placeholder: "Automatic")),
+                              FieldSpec(path: "spacing", label: "Space between items", kind: .number(placeholder: "0")),
+                              FieldSpec(path: "padding", label: "Padding at the ends", kind: .number(placeholder: "Automatic"))]),
+        ItemTypeInfo(type: "group", name: "Folder", symbol: "folder", category: "Containers",
                      defaults: ["symbol": .string("folder.fill")], fields: []),
-        simple("close", "Close Group", "chevron.left", "Containers"),
+        simple("close", "Close Folder", "chevron.left", "Containers"),
 
         // Other
         ItemTypeInfo(type: "swipe", name: "Swipe Gesture", symbol: "hand.draw", category: "Other",
@@ -530,20 +691,48 @@ enum ItemCatalog {
         return ItemTypeInfo(type: type, name: name, symbol: symbol, category: category, defaults: defaults, fields: [])
     }
 
+    /// Library types that stand for a template rather than an item type.
+    static let templatePrefix = "template:"
+
+    /// A down and an up key side by side in one group, split by a divider.
+    private static func pair(_ id: String, _ name: String, _ symbol: String, down: String, up: String,
+                             category: String = "Keys") -> ItemTypeInfo {
+        group(id, name, symbol, [down, up], category: category)
+    }
+
+    /// Keys side by side in one group, split by dividers: a ready-made group.
+    private static func group(_ id: String, _ name: String, _ symbol: String, _ types: [String], category: String) -> ItemTypeInfo {
+        ItemTypeInfo(type: templatePrefix + id, name: name, symbol: symbol, category: category, defaults: [:], fields: [],
+                     template: ["type": .string("cluster"), "dividers": .bool(true), "itemWidth": .number(44), "cornerRadius": .number(8),
+                                "items": .array(types.map { .object(["type": .string($0)]) })])
+    }
+
     static func info(for type: String) -> ItemTypeInfo {
         return all.first { $0.type == type }
             ?? ItemTypeInfo(type: type, name: type, symbol: "questionmark.square", category: "Other", defaults: [:], fields: [])
     }
 
     static func newItem(_ type: String, align: String, document: PresetDocument) -> EditorItem {
+        // An item saved to My Items: a copy of it, placed where it's added.
+        if let saved = SavedItems.shared.entry(for: type) {
+            var fields = saved.item
+            fields["align"] = align != "center" ? .string(align) : nil
+            return EditorItem(fields: fields, document: document)
+        }
         let info = self.info(for: type)
-        var fields = info.defaults
-        fields["type"] = .string(type)
+        var fields = info.template ?? info.defaults
+        fields["type"] = fields["type"] ?? .string(type)
         if align != "center" { fields["align"] = .string(align) }
-        if info.isContainer {
+        if info.isContainer, fields["items"] == nil {
             fields["items"] = .array([])
         }
         return EditorItem(fields: fields, document: document)
+    }
+
+    /// Whether a library type (including a saved item) is a folder, group or popover.
+    static func isContainer(_ type: String) -> Bool {
+        if let saved = SavedItems.shared.entry(for: type) { return saved.info.isContainer }
+        return info(for: type).isContainer
     }
 
     /// SF Symbols offered in the icon picker; any other symbol name can be typed in.

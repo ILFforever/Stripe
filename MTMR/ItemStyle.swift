@@ -8,6 +8,16 @@
 //    "symbol": "cpu", "iconColor": "#34C759",
 //    "fontSize": 13, "fontWeight": "semibold", "textColor": "orange",
 //    "monospacedDigits": true, "cornerRadius": 8   // or "style": "pill"
+//    "pressedBackground": "#636366"                 // while touched
+//    "activeBackground": "green",                   // while the item is on:
+//    "activeWhen": { "app": "Safari" }              //   toggles know; other items use a rule
+//    "activeSymbol": "speaker.slash.fill", "activeIconColor": "red",   // and look different while on:
+//    "activeTextColor": "#FFFFFF", "activeTitle": "Muted"               // icon, colors, title
+//    "haptic": "press", "hapticStrength": "strong", "hapticPattern": "double"
+//    "hapticToggle": false          // toggles: no on/off feel;  "hapticStep": 5   // sliders: detent every 5%
+//    "hapticOnStrength": "strong", "hapticOnPattern": "double",   // toggles: the buzz for turning on…
+//    "hapticOffStrength": "light", "hapticOffPattern": "single",  // …and for turning off
+//    "holdRepeat": false, "holdStep": 10   // brightness/volume keys: no repeat while held; step 10% when on
 //
 
 import AppKit
@@ -20,6 +30,20 @@ struct ItemStyle {
     var cornerRadius: CGFloat?
     var symbol: String?
     var iconColor: NSColor?
+    var pressedBackground: NSColor?
+    var activeBackground: NSColor?
+    /// When the item counts as on, for items that don't know it themselves
+    /// (toggles like Do Not Disturb do). Same rules as "when".
+    var activeWhen: ItemCondition?
+    var activeSymbol: String?
+    var activeIconColor: NSColor?
+    var activeTextColor: NSColor?
+    var activeTitle: String?
+    var haptic = HapticStyle()
+    /// Brightness and volume keys: keep stepping while held ("holdRepeat", on unless false).
+    var holdRepeat = true
+    /// How far each held step moves, 0...1 ("holdStep" in percent, default 5).
+    var holdStep = 0.05
 
     static let barHeight: CGFloat = 30
     static let defaultFontSize: CGFloat = 15
@@ -56,14 +80,29 @@ struct ItemStyle {
         return result
     }
 
+    /// This style as it looks while the item is on: its "active…" keys in place of the usual ones.
+    var whileActive: ItemStyle {
+        var active = self
+        if let symbol = activeSymbol { active.symbol = symbol }
+        if let color = activeIconColor { active.iconColor = color }
+        if let color = activeTextColor { active.textColor = color }
+        return active
+    }
+
     /// The SF Symbol icon, sized to sit alongside the title text.
     var symbolImage: NSImage? {
         guard let symbol = symbol,
               let base = NSImage(systemSymbolName: symbol, accessibilityDescription: symbol) else { return nil }
         var config = NSImage.SymbolConfiguration(pointSize: (fontSize ?? ItemStyle.defaultFontSize) + 1,
                                                  weight: fontWeight ?? .regular)
-        if let iconColor = iconColor {
+        if let iconColor = iconColor, iconColor.isWhite {
+            // Solid white, like the system's own keys; hierarchical would fade the
+            // secondary layers (light.max's dashes).
             config = config.applying(NSImage.SymbolConfiguration(paletteColors: [iconColor]))
+        } else if let iconColor = iconColor {
+            // Hierarchical, not a flat palette: a filled symbol (speaker.slash.circle.fill)
+            // keeps its glyph visible against a lighter shade of the same color.
+            config = config.applying(NSImage.SymbolConfiguration(hierarchicalColor: iconColor))
         }
         let image = base.withSymbolConfiguration(config)
         image?.isTemplate = iconColor == nil // template images render white on the Touch Bar
@@ -74,6 +113,11 @@ struct ItemStyle {
 extension ItemStyle: Decodable {
     private enum CodingKeys: String, CodingKey {
         case fontSize, fontWeight, textColor, monospacedDigits, cornerRadius, symbol, iconColor, style
+        case pressedBackground, activeBackground, activeWhen
+        case activeSymbol, activeIconColor, activeTextColor, activeTitle
+        case haptic, hapticStrength, hapticPattern, hapticToggle, hapticStep
+        case hapticOnStrength, hapticOnPattern, hapticOffStrength, hapticOffPattern
+        case holdRepeat, holdStep
     }
 
     init(from decoder: Decoder) throws {
@@ -85,6 +129,24 @@ extension ItemStyle: Decodable {
         cornerRadius = try c.decodeIfPresent(CGFloat.self, forKey: .cornerRadius)
         symbol = try c.decodeIfPresent(String.self, forKey: .symbol)
         iconColor = try c.decodeIfPresent(String.self, forKey: .iconColor)?.namedOrHexColor
+        pressedBackground = try c.decodeIfPresent(String.self, forKey: .pressedBackground)?.namedOrHexColor
+        activeBackground = try c.decodeIfPresent(String.self, forKey: .activeBackground)?.namedOrHexColor
+        activeWhen = try c.decodeIfPresent(ItemCondition.self, forKey: .activeWhen)
+        activeSymbol = try c.decodeIfPresent(String.self, forKey: .activeSymbol)
+        activeIconColor = try c.decodeIfPresent(String.self, forKey: .activeIconColor)?.namedOrHexColor
+        activeTextColor = try c.decodeIfPresent(String.self, forKey: .activeTextColor)?.namedOrHexColor
+        activeTitle = try c.decodeIfPresent(String.self, forKey: .activeTitle)
+        haptic = HapticStyle(when: try c.decodeIfPresent(String.self, forKey: .haptic),
+                             strength: try c.decodeIfPresent(String.self, forKey: .hapticStrength),
+                             pattern: try c.decodeIfPresent(String.self, forKey: .hapticPattern),
+                             toggle: try c.decodeIfPresent(Bool.self, forKey: .hapticToggle),
+                             step: try c.decodeIfPresent(Double.self, forKey: .hapticStep),
+                             onStrength: try c.decodeIfPresent(String.self, forKey: .hapticOnStrength),
+                             onPattern: try c.decodeIfPresent(String.self, forKey: .hapticOnPattern),
+                             offStrength: try c.decodeIfPresent(String.self, forKey: .hapticOffStrength),
+                             offPattern: try c.decodeIfPresent(String.self, forKey: .hapticOffPattern))
+        holdRepeat = try c.decodeIfPresent(Bool.self, forKey: .holdRepeat) ?? true
+        if let step = try c.decodeIfPresent(Double.self, forKey: .holdStep), step >= 1, step <= 50 { holdStep = step / 100 }
         if try c.decodeIfPresent(String.self, forKey: .style) == "pill", cornerRadius == nil {
             cornerRadius = ItemStyle.barHeight / 2
         }
@@ -126,5 +188,13 @@ extension String {
             "white": .white, "black": .black,
         ]
         return named[lowercased()] ?? hexColor
+    }
+}
+
+extension NSColor {
+    /// Opaque white, whichever color space it was given in.
+    var isWhite: Bool {
+        guard let rgb = usingColorSpace(.sRGB) else { return false }
+        return rgb.redComponent > 0.99 && rgb.greenComponent > 0.99 && rgb.blueComponent > 0.99 && rgb.alphaComponent > 0.99
     }
 }

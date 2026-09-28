@@ -1,22 +1,71 @@
-# Stripe
+<h1 align="center">Stripe</h1>
 
-_A Touch Bar customizer for MacBook Pro, forked from [MTMR](https://github.com/Toxblh/MTMR)._
+<p align="center"><b>The Touch Bar, finally finished.</b><br>
+The next evolution of <a href="https://github.com/Toxblh/MTMR">MTMR</a>: design your bar in a live editor, with glass keys, full-bar dashboards and haptics you can feel.</p>
 
-Stripe replaces your Touch Bar with a bar you design: buttons, sliders, widgets and scripts, laid out in JSON or in a drag-and-drop Settings window. It aims to look and behave like Apple's own Touch Bar controls.
+<p align="center">
+<img src="https://img.shields.io/github/license/ILFforever/Stripe.svg" alt="license">
+<img src="https://img.shields.io/badge/required-macOS%2012-blue.svg" alt="minimal system requirements">
+</p>
 
-![license](https://img.shields.io/github/license/ILFforever/Stripe.svg) ![minimal system requirements](https://img.shields.io/badge/required-macOS%2012-blue.svg)
+![Stripe on the Touch Bar: brightness and volume groups, live CPU/GPU and network readouts, a folder, battery, media controls and the clock](Resources/screenshots/bar.png)
 
-## What's new compared with MTMR
+MTMR proved the Touch Bar could be yours: any button, any script, any layout, in one JSON file. Stripe keeps all of that, and every MTMR preset still loads. Then it adds what MTMR never had: a visual editor, a look that matches Apple's own controls, and widgets that turn the whole bar into a dashboard when you need one.
 
-- **Visual settings editor.** Drag items around a live picture of your bar and edit each one in an inspector. You don't need to touch the JSON.
-- **Popovers.** A collapsible item such as a volume key opens its controls in place. Press and hold, then slide, to adjust without opening it.
-- **Per-item styling.** SF Symbols, font size and weight, text and icon colors, and rounded "pill" backgrounds.
-- **Conditional items.** Show an item only for certain apps, at certain times of day, or while a shell command succeeds.
-- **Per-app presets.** Give any app its own bar.
-- **Redesigned widgets.** Battery (drawn icon, charging animation, time remaining), plus a mute toggle and volume icon that show the current level.
-- **Builds without Xcode.** Only the Command Line Tools are needed. Sparkle auto-updates are removed.
+## Design it live, not in JSON
 
-Existing MTMR presets still load.
+![The Settings window: a live preview of the bar on top, the item library on the left, and the Battery item's Style tab open in the inspector](Resources/screenshots/settings.png)
+
+- **A live preview at the bar's real size.** Drag items in from the library, move them between the left, center and right, and drop them into folders and popovers. The real Touch Bar updates as you go.
+- **An inspector for every item.** Item, Style, Behavior and Advanced tabs show only what applies to that item and only what you've changed. The item's raw JSON is under Advanced when you want it.
+- **My Items.** Save an item you've styled and reuse it on any bar.
+- **Undo and redo**, and a preset file that's still plain JSON underneath.
+
+## A bar that looks like it shipped with the Mac
+
+![Theme settings: Standard or Glass keys, in Subtle, Balanced or Strong](Resources/screenshots/settings-theme.png)
+
+- **Glass keys.** Frosted keys with a thin, top-lit rim, in Subtle, Balanced or Strong, with an optional tint. Or keep Apple's standard keys.
+- **Bar backgrounds.** A color, a gradient, a pattern or a looping video behind every key. Videos pause on battery if you want.
+- **Every key, your way.** SF Symbols, font weight, text and icon colors, and corners from square to pill on one slider. Each item can switch between the Stripe look and MTMR classic.
+- **Key groups.** Brightness, Keyboard Light, Volume and Media Controls come as ready-made groups: keys on one shared background with dividers, like Apple's own.
+
+![Background settings: None, Color, Gradient, Pattern or Video, with a grid of patterns](Resources/screenshots/settings-background.png)
+
+## Full-bar dashboards
+
+![The Battery page (charge, last 12 hours, charger wattage, time since plugged in, top apps by power) and the Performance page (CPU cores, a 2-minute CPU and GPU graph, GPU, memory pressure and top apps)](Resources/screenshots/pages.png)
+
+- **Battery.** Hold the battery item to open a page with charge and time to full, a 12-hour history, charger wattage, time since you plugged in, and which apps are using the most power.
+- **CPU and GPU.** Live readouts on the bar. Tap one for a page with per-core load, a two-minute graph, GPU usage, memory pressure and the busiest apps, or hold it to open Activity Monitor. You pick which tiles show.
+- **Network speed**, **now playing**, **weather**, **calendar**, **pomodoro** and the rest of MTMR's widgets are all still here.
+
+## Folders and popovers
+
+![A volume popover with a slider opened in place, and a folder of pill buttons: Awake, Hold to sleep, Hold: restart Wi-Fi](Resources/screenshots/popover-folder.png)
+
+- **Popovers** open their controls in place, on the same side as the button. Press, hold and slide to change the volume without even opening one.
+- **Folders** hold a whole second bar behind one key: scripts, toggles, anything.
+- **On states.** A key can light up and change its icon, color and title while something is true: Do Not Disturb is on, a script succeeds, an app is in front.
+- **Conditions and per-app bars.** Show an item only for certain apps, at certain times or while a command succeeds, or give an app a bar of its own.
+
+## Haptics you can tune
+
+![The inspector's Behavior tab for a Volume Up key: Buzz on, Strength, Pattern and Try it](Resources/screenshots/settings-haptics.png)
+
+The Touch Bar has no feedback of its own, so Stripe plays it through the trackpad's actuator.
+
+- **Per item:** buzz on press, release, both or neither, at Light, Medium or Strong, as a single, double or triple tap. **Try it** plays it on the trackpad right there in Settings.
+- **Toggles you can feel.** A tap that turns something on feels different from one that turns it off.
+- **Detents on sliders.** Volume and brightness tick as you drag, with a firmer stop at each end.
+- **Hold to repeat.** Hold a brightness or volume key and it keeps stepping by the amount you choose, with the system overlay up and a buzz that builds as you go up and fades as you go down.
+
+## Also new
+
+- **Snappier.** Apple Events and scripts stay off the main thread, and the bar reloads in place instead of flickering.
+- **Builds with just the Command Line Tools.** No Xcode, and Sparkle auto-updates are removed.
+
+The full rules for every item, its states and which settings apply are in [ITEMS.md](ITEMS.md).
 
 ## Installation
 
@@ -111,7 +160,7 @@ The controls open on the same side of the bar as the button. Tap ✕ or any empt
 }
 ```
 
-Press and hold the battery item to open Battery settings.
+Press and hold the battery item to open its page across the bar (`"holdOpens": "settings"` opens Battery settings instead).
 
 ## Built-in button types:
 
@@ -302,6 +351,35 @@ To close a group, use the button:
   "width": 64
 },
 ```
+
+### Key groups (`cluster`)
+
+Keys side by side on one shared background, like Apple's volume and brightness keys:
+
+```js
+{
+  "type": "cluster",
+  "dividers": true,   // thin lines between the keys
+  "itemWidth": 44,    // minimum width of each key
+  "spacing": 0,       // space between keys
+  "cornerRadius": 8,
+  "items": [ { "type": "volumeDown" }, { "type": "volumeUp" } ]
+}
+```
+
+### Haptics and hold to repeat
+
+```js
+{
+  "type": "volumeUp",
+  "haptic": "both",           // "press", "release", "both" or "off"
+  "hapticStrength": "medium", // "light", "medium" or "strong", for the press
+  "hapticPattern": "single",  // "single", "double" or "triple"
+  "holdStep": 5               // percent per step while held; "holdRepeat": false turns it off
+}
+```
+
+See [ITEMS.md](ITEMS.md) for toggle feel and slider detents.
 
 ## Native plugins
 

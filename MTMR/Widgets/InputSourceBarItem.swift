@@ -36,6 +36,15 @@ class InputSourceBarItem: CustomButtonTouchBarItem {
     @objc public func textInputSourceDidChange() {
         let currentSource = TISCopyCurrentKeyboardInputSource().takeUnretainedValue()
 
+        // Stripe: a globe and the language's code, on a pill.
+        if theme.stripeWidgets {
+            if style.symbol == nil { image = stripeSymbol("globe") }
+            attributedTitle = NSAttributedString(string: currentSource.shortCode, attributes: [
+                .font: NSFont.systemFont(ofSize: 14, weight: .semibold), .kern: 0.6, .foregroundColor: NSColor.white,
+            ])
+            return
+        }
+
         var iconImage: NSImage?
 
         if let imageURL = currentSource.iconImageURL,
@@ -110,6 +119,14 @@ extension TISInputSource {
 
     var name: String {
         return getProperty(kTISPropertyLocalizedName) as! String
+    }
+
+    /// "EN", "TH", "JA": the source's first language, else the start of its name.
+    var shortCode: String {
+        if let languages = getProperty(kTISPropertyInputSourceLanguages) as? [String], let first = languages.first {
+            return String(first.prefix(2)).uppercased()
+        }
+        return String(name.prefix(2)).uppercased()
     }
 
     var category: String {

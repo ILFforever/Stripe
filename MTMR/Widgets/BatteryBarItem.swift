@@ -8,11 +8,15 @@
 //  Stripe: a drawn battery icon whose fill tracks the charge (green while
 //  charging, yellow in Low Power Mode, red when low, with a sweep animation
 //  while charging), plus optional percentage and time remaining. Tapping can
-//  switch to time remaining and back; holding opens Battery settings.
+//  switch to time remaining and back; holding opens the battery panel across the
+//  bar (BatteryPanel.swift), Battery settings ("holdOpens": "settings"), or
+//  nothing ("holdOpens": "nothing").
 //
 //    { "type": "battery", "showIcon": true, "showPercentage": true,
 //      "percentInside": false, "showTime": false, "animate": true,
-//      "lowThreshold": 20, "tapToCycle": true }
+//      "lowThreshold": 20, "tapToCycle": true, "holdOpens": "details",
+//      "panelTiles": ["charge", "graph", "power", "since", "apps"],
+//      "panelGraphHours": 12, "panelBarMinutes": 30, "panelCloseSide": "right" }
 //
 
 import Cocoa
@@ -27,16 +31,28 @@ struct BatteryOptions {
     var animate = true
     var lowThreshold = 20
     var tapToCycle = true
+    enum HoldAction: String {
+        case details, settings, nothing
+    }
+
+    var holdAction = HoldAction.details
+    var panel = BatteryPanelOptions()
 }
 
 class BatteryBarItem: CustomButtonTouchBarItem, TearDownable {
     private let batteryInfo = BatteryInfo()
     private let options: BatteryOptions
+    /// What holding opens, for the debug hook to open the same thing.
+    var panelOptions: BatteryPanelOptions { options.panel }
 
     /// Whether a tap has switched to time remaining; otherwise shows what the options say.
     private var showingTimeLeft = false
-    private var animationTimer: Timer?
-    private var sweepPhase: CGFloat = 0
+
+    /// The charging sweep: a soft light band sliding across the fill, run by
+    /// Core Animation over the static icon, so nothing is redrawn per frame.
+    private let sweepClip = CALayer()
+    private let sweepBand = CAGradientLayer()
+    private static let bandWidth: CGFloat = 8
 
     init(identifier: NSTouchBarItem.Identifier, options: BatteryOptions) {
         self.options = options
@@ -46,9 +62,26 @@ class BatteryBarItem: CustomButtonTouchBarItem, TearDownable {
         if options.tapToCycle {
             actions.append(ItemAction(trigger: .singleTap) { [weak self] in self?.cycle() })
         }
-        actions.append(ItemAction(trigger: .longTap) {
-            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Battery-Settings.extension")!)
-        })
+        switch options.holdAction {
+        case .details:
+            let panel = options.panel
+            actions.append(ItemAction(trigger: .longTap) { BatteryPanel.shared.open(options: panel) })
+            BatteryHistory.shared.start() // so the panel's graph has something to show
+        case .settings:
+            actions.append(ItemAction(trigger: .longTap) {
+                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Battery-Settings.extension")!)
+            })
+        case .nothing:
+            break
+        }
+
+        sweepClip.masksToBounds = true
+        sweepBand.colors = [NSColor(white: 1, alpha: 0).cgColor, NSColor(white: 1, alpha: 0.65).cgColor,
+                            NSColor(white: 1, alpha: 0).cgColor]
+        sweepBand.startPoint = CGPoint(x: 0, y: 0.5)
+        sweepBand.endPoint = CGPoint(x: 1, y: 0.5)
+        sweepClip.addSublayer(sweepBand)
+        (view as? CustomHeightButton)?.onLayout = { [weak self] in self?.placeSweep() }
 
         batteryInfo.start { [weak self] in
             self?.refresh()
@@ -65,8 +98,7 @@ class BatteryBarItem: CustomButtonTouchBarItem, TearDownable {
 
     func tearDown() {
         batteryInfo.stop()
-        animationTimer?.invalidate()
-        animationTimer = nil
+        sweepClip.removeFromSuperlayer()
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -101,6 +133,13 @@ class BatteryBarItem: CustomButtonTouchBarItem, TearDownable {
         let display = self.display
         let showPercentInside = display.icon && display.percentage && options.percentInside
 
+        guard theme.drawnBattery else {
+            // The MTMR theme: MTMR's text battery.
+            image = nil
+            attributedTitle = mtmrTitle
+            updateAnimation()
+            return
+        }
         image = display.icon ? batteryIcon(percentInside: showPercentInside) : nil
 
         var parts: [String] = []
@@ -116,6 +155,24 @@ class BatteryBarItem: CustomButtonTouchBarItem, TearDownable {
         updateAnimation()
     }
 
+    /// How MTMR showed the battery: "⚡️64%" while charging, with the time
+    /// remaining small and raised beside it, and red at 10% and below.
+    private var mtmrTitle: NSAttributedString {
+        let onAC = batteryInfo.onACPower
+        let percent = batteryInfo.current
+        let minutes = onAC ? batteryInfo.timeToFull : batteryInfo.timeToEmpty
+        let color: NSColor = percent <= 10 && !onAC ? .red : .white
+        let title = NSMutableAttributedString(string: (onAC && percent < 100 ? "⚡️" : "") + "\(percent)%", attributes: [
+            .foregroundColor: color, .font: NSFont.systemFont(ofSize: 15), .baselineOffset: 1,
+        ])
+        if minutes > 0 {
+            title.append(NSAttributedString(string: String(format: " %d:%02d", minutes / 60, minutes % 60), attributes: [
+                .foregroundColor: color, .font: NSFont.systemFont(ofSize: 8), .baselineOffset: 7,
+            ]))
+        }
+        return title
+    }
+
     // MARK: Icon
 
     private var isLow: Bool {
@@ -129,16 +186,31 @@ class BatteryBarItem: CustomButtonTouchBarItem, TearDownable {
         return .white
     }
 
-    private func batteryIcon(percentInside: Bool) -> NSImage {
-        // Inside-percentage icons are larger, and wider still with a bolt beside the number.
-        let bodySize = percentInside ? NSSize(width: batteryInfo.onACPower ? 40 : 34, height: 16) : NSSize(width: 27, height: 13)
-        let size = NSSize(width: bodySize.width + 3, height: bodySize.height)
+    /// The icon's body size; inside-percentage icons are larger, and wider still
+    /// with a bolt beside the number.
+    private func bodySize(percentInside: Bool) -> NSSize {
+        return percentInside ? NSSize(width: batteryInfo.onACPower ? 40 : 34, height: 16) : NSSize(width: 27, height: 13)
+    }
+
+    /// Where the fill is drawn within the icon, and its corner radius.
+    private func fillRect(bodySize: NSSize) -> (rect: NSRect, radius: CGFloat) {
+        let body = NSRect(origin: .zero, size: bodySize).insetBy(dx: 0.5, dy: 0.5)
+        let inner = body.insetBy(dx: 2, dy: 2)
+        let innerRadius = max(bodySize.height * 0.3 - 2, 1)
         let level = CGFloat(max(0, min(100, batteryInfo.current))) / 100
+        var filled = inner
+        filled.size.width = max(inner.width * level, level > 0 ? innerRadius * 2 : 0)
+        return (filled, innerRadius)
+    }
+
+    private func batteryIcon(percentInside: Bool) -> NSImage {
+        let bodySize = self.bodySize(percentInside: percentInside)
+        let size = NSSize(width: bodySize.width + 3, height: bodySize.height)
         let fill = fillColor
         let charging = batteryInfo.isCharging
         let onAC = batteryInfo.onACPower
-        let sweep = animating ? sweepPhase : nil
         let percent = batteryInfo.current
+        let (filled, innerRadius) = fillRect(bodySize: bodySize)
 
         let image = NSImage(size: size, flipped: false) { _ in
             let body = NSRect(origin: .zero, size: bodySize).insetBy(dx: 0.5, dy: 0.5)
@@ -153,24 +225,9 @@ class BatteryBarItem: CustomButtonTouchBarItem, TearDownable {
             NSColor(white: 1, alpha: 0.45).setFill()
             NSBezierPath(roundedRect: nub, xRadius: 1, yRadius: 1).fill()
 
-            // Fill proportional to the charge.
-            let inner = body.insetBy(dx: 2, dy: 2)
-            let innerRadius = max(radius - 2, 1)
-            var filled = inner
-            filled.size.width = max(inner.width * level, level > 0 ? innerRadius * 2 : 0)
+            // Fill proportional to the charge (the charging sweep is layered over it; see placeSweep).
             fill.setFill()
             NSBezierPath(roundedRect: filled, xRadius: innerRadius, yRadius: innerRadius).fill()
-
-            // Charging sweep: a soft light band moving across the fill.
-            if let phase = sweep {
-                NSGraphicsContext.saveGraphicsState()
-                NSBezierPath(roundedRect: filled, xRadius: innerRadius, yRadius: innerRadius).addClip()
-                let bandWidth: CGFloat = 8
-                let x = filled.minX - bandWidth + (filled.width + bandWidth * 2) * phase
-                let gradient = NSGradient(colors: [NSColor(white: 1, alpha: 0), NSColor(white: 1, alpha: 0.65), NSColor(white: 1, alpha: 0)])
-                gradient?.draw(in: NSRect(x: x, y: filled.minY, width: bandWidth, height: filled.height), angle: 0)
-                NSGraphicsContext.restoreGraphicsState()
-            }
 
             if percentInside {
                 // Dark text on the fill reads well on every fill color.
@@ -220,18 +277,44 @@ class BatteryBarItem: CustomButtonTouchBarItem, TearDownable {
     }
 
     private func updateAnimation() {
-        if animating, animationTimer == nil {
-            // ~2s per sweep at 20fps; only runs while charging.
-            animationTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 20, repeats: true) { [weak self] _ in
-                guard let self = self else { return }
-                self.sweepPhase += 1.0 / 40
-                if self.sweepPhase > 1.3 { self.sweepPhase = -0.3 } // a pause between sweeps
-                self.image = self.batteryIcon(percentInside: self.display.percentage && self.options.percentInside)
-            }
-        } else if !animating, let timer = animationTimer {
-            timer.invalidate()
-            animationTimer = nil
+        placeSweep()
+    }
+
+    /// Lays the sweep over the icon's fill while charging, and removes it otherwise.
+    /// Called on every refresh and layout, since the fill's size and place change.
+    private func placeSweep() {
+        guard animating, let button = view as? NSButton, let cell = button.cell, button.image != nil else {
+            if sweepClip.superlayer != nil { sweepClip.removeFromSuperlayer() }
+            return
         }
+        button.wantsLayer = true
+        guard let host = button.layer else { return }
+        let bodySize = self.bodySize(percentInside: display.percentage && options.percentInside)
+        let (fill, radius) = fillRect(bodySize: bodySize)
+        let imageRect = cell.imageRect(forBounds: button.bounds)
+        // The fill is centred vertically in the icon, so this holds whether or
+        // not the layer's geometry is flipped.
+        let frame = NSRect(x: imageRect.minX + fill.minX, y: imageRect.midY - fill.height / 2,
+                           width: fill.width, height: fill.height)
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if sweepClip.superlayer !== host { host.addSublayer(sweepClip) }
+        let changed = sweepClip.frame != frame
+        sweepClip.frame = frame
+        sweepClip.cornerRadius = radius
+        sweepBand.frame = CGRect(x: -BatteryBarItem.bandWidth, y: 0, width: BatteryBarItem.bandWidth, height: frame.height)
+        CATransaction.commit()
+
+        guard changed || sweepBand.animation(forKey: "sweep") == nil else { return }
+        // About two seconds per sweep, then a short pause.
+        let sweep = CAKeyframeAnimation(keyPath: "position.x")
+        let start = -BatteryBarItem.bandWidth / 2, end = frame.width + BatteryBarItem.bandWidth / 2
+        sweep.values = [start, end, end]
+        sweep.keyTimes = [0, 0.77, 1]
+        sweep.duration = 2.6
+        sweep.repeatCount = .infinity
+        sweepBand.add(sweep, forKey: "sweep")
     }
 }
 

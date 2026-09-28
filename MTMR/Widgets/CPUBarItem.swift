@@ -13,24 +13,26 @@ class CPUBarItem: CustomButtonTouchBarItem {
     private var refreshQueue: DispatchQueue? = DispatchQueue(label: "mtmr.cpu")
     private let defaultSingleTapScript: NSAppleScript! = "activate application \"Activity Monitor\"\rtell application \"System Events\"\r\ttell process \"Activity Monitor\"\r\t\ttell radio button \"CPU\" of radio group 1 of group 2 of toolbar 1 of window 1 to perform action \"AXPress\"\r\tend tell\rend tell".appleScript
 
-    init(identifier: NSTouchBarItem.Identifier, refreshInterval: TimeInterval) {
+    init(identifier: NSTouchBarItem.Identifier, refreshInterval: TimeInterval, panel: PerformancePanelOptions) {
         self.refreshInterval = refreshInterval
         super.init(identifier: identifier, title: "")
         hideUntilFirstTitle()
                 
         // Set default image
-        if self.image == nil {
+        if self.image == nil, !theme.stripeWidgets {
             self.image = #imageLiteral(resourceName: "cpu").resize(maxSize: NSSize(width: 24, height: 24));
         }
+        // Stripe: no key; the figure and a meter sit on the bar.
+        if theme.stripeWidgets { isBordered = false }
         
         // Set default action
-        if actions.filter({ $0.trigger == .singleTap }).isEmpty {
-            actions.append(ItemAction(
-                trigger: .singleTap,
-                defaultTapAction
-            ))
-        }
+        // Holding opens Activity Monitor's CPU tab.
+        actions.append(ItemAction(trigger: .longTap, defaultTapAction))
         
+        // A tap opens the CPU page.
+        opensPerformancePanel(panel)
+        PerformanceStats.shared.start()
+
         refreshAndSchedule()
     }
 
@@ -46,6 +48,10 @@ class CPUBarItem: CustomButtonTouchBarItem {
                 return
             }
             
+            if self.theme.stripeWidgets {
+                self.showStripe(usage)
+                return
+            }
             // Choose color based on CPU load
             var color: NSColor? = nil
             var bgColor: NSColor? = nil
@@ -62,12 +68,31 @@ class CPUBarItem: CustomButtonTouchBarItem {
                 attrTitle.addAttributes([.foregroundColor: color], range: NSRange(location: 0, length: attrTitle.length))
             }
             self.attributedTitle = attrTitle
-            self.backgroundColor = bgColor
+            // Changing the background rebuilds the key; only do it when it changes.
+            if self.backgroundColor != bgColor { self.backgroundColor = bgColor }
         }
         
         refreshQueue?.asyncAfter(deadline: .now() + refreshInterval) { [weak self] in
             self?.refreshAndSchedule()
         }
+    }
+
+    /// Stripe's CPU: a dim chip icon, the figure, and a four-bar meter, all
+    /// turning yellow when busy and orange when heavy.
+    private func showStripe(_ usage: Double) {
+        let color = StripeReadout.loadColor(usage)
+        if style.symbol == nil {
+            let tint = usage > 30 ? color : StripeReadout.dim
+            image = NSImage(systemSymbolName: "cpu", accessibilityDescription: "CPU")?
+                .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+                    .applying(NSImage.SymbolConfiguration(paletteColors: [tint])))
+        }
+        let text = NSMutableAttributedString(attributedString: StripeReadout.figure(String(format: "%.0f%%", usage), color: color))
+        text.append(StripeReadout.gap(6))
+        text.append(StripeReadout.meter(usage, color: color))
+        attributedTitle = text
+        // Room for "100%", so the key doesn't jump as the figure changes.
+        minimumTitleWidth = ceil(StripeReadout.figure("100%").size().width) + 6 + 17
     }
 
     func defaultTapAction() {

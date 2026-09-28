@@ -11,6 +11,9 @@ import Foundation
 import EventKit
 
 class UpNextScrubberTouchBarItem: NSCustomTouchBarItem {
+    /// The look it was built with (the items it makes later are drawn in it).
+    private let theme = Theme.current
+
     // Dependencies
     private let scrollView = NSScrollView()
     private let activity: NSBackgroundActivityScheduler // Update scheduler
@@ -72,8 +75,10 @@ class UpNextScrubberTouchBarItem: NSCustomTouchBarItem {
         DispatchQueue.main.async {
             for event in upcomingEvents {
                 // Create UpNextItem
-                let item = UpNextItem(event: event)
-                item.backgroundColor = self.getBackgroundColor(startDate: event.startDate)
+                let item = UpNextItem(event: event, stripe: self.theme.stripeWidgets)
+                if !self.theme.stripeWidgets {
+                    item.backgroundColor = self.getBackgroundColor(startDate: event.startDate)
+                }
                 // Bind tap event
                 item.actions.append(ItemAction(trigger: .singleTap) { [weak self] in
                     self?.switchToApp(event: event)
@@ -158,10 +163,48 @@ class UpNextScrubberTouchBarItem: NSCustomTouchBarItem {
 private class UpNextItem : CustomButtonTouchBarItem {
     static public let df = DateFormatter()
 
-    init(event: UpNextEventModel) {
+    init(event: UpNextEventModel, stripe: Bool) {
         let identifier = UpNextItem.getIdentifier(event: event)
         let title = UpNextItem.getTitle(event: event)
         super.init(identifier: NSTouchBarItem.Identifier(rawValue: identifier), title: title)
+        if stripe { showStripe(event) }
+    }
+
+    /// Stripe: a dot in the event's calendar color, its name in bold over when
+    /// it starts ("in 12 min · 10:30"), orange once it's under half an hour away.
+    private func showStripe(_ event: UpNextEventModel) {
+        isBordered = false
+        let dot = NSImage(size: NSSize(width: 9, height: 9), flipped: false) { rect in
+            (event.color ?? .systemPurple).setFill()
+            NSBezierPath(ovalIn: rect).fill()
+            return true
+        }
+        dot.isTemplate = false
+        image = dot
+        let minutes = Int((event.startDate.timeIntervalSinceNow / 60).rounded(.up))
+        let time = DateFormatter.localizedString(from: event.startDate, dateStyle: .none, timeStyle: .short)
+        let when: String
+        if minutes <= 0 {
+            when = "now · \(time)"
+        } else if minutes < 60 {
+            when = "in \(minutes) min · \(time)"
+        } else {
+            when = time
+        }
+        let soon = minutes > 0 && minutes < 30
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.minimumLineHeight = 13
+        paragraph.maximumLineHeight = 13
+        let name = event.title.count > 24 ? String(event.title.prefix(23)) + "…" : event.title
+        let text = NSMutableAttributedString(string: name, attributes: [
+            .font: NSFont.systemFont(ofSize: 12, weight: .semibold), .foregroundColor: NSColor.white, .paragraphStyle: paragraph,
+        ])
+        text.append(NSAttributedString(string: "\n" + when, attributes: [
+            .font: NSFont.systemFont(ofSize: 11),
+            .foregroundColor: soon ? NSColor(srgbRed: 1, green: 0x9F / 255, blue: 0x0A / 255, alpha: 1) : StripeReadout.dim,
+            .paragraphStyle: paragraph,
+        ]))
+        attributedTitle = text
     }
     
     required init?(coder _: NSCoder) {
@@ -197,6 +240,8 @@ struct UpNextEventModel {
     let title: String
     let startDate: Date
     let sourceType: UpNextSourceType
+    /// The event's calendar color.
+    var color: NSColor? = nil
 }
 
 
@@ -249,7 +294,8 @@ class UpNextCalenderSource : IUpNextSource {
         let predicate = self.eventStore.predicateForEvents(withStart: dateLowerBounds, end: dateUpperBounds, calendars: calendars)
         let events = self.eventStore.events(matching: predicate)
         for event in events {
-            upcomingEvents.append(UpNextEventModel(title: event.title, startDate: event.startDate, sourceType: UpNextSourceType.iCalendar))
+            upcomingEvents.append(UpNextEventModel(title: event.title, startDate: event.startDate, sourceType: UpNextSourceType.iCalendar,
+                                                   color: event.calendar?.color))
         }
         return upcomingEvents
     }

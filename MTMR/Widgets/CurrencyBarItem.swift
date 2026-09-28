@@ -19,6 +19,8 @@ class CurrencyBarItem: CustomButtonTouchBarItem {
     private var decimalValue: Float32!
     private var decimalString: String!
     private var oldValue: Float32!
+    /// The first reading since Stripe started, for the change Stripe's design shows.
+    private var firstValue: Float32?
     private var full: Bool = false
 
     private let currencies = [
@@ -144,6 +146,10 @@ class CurrencyBarItem: CustomButtonTouchBarItem {
     }
 
     func setCurrency(value: Float32) {
+        if theme.stripeWidgets {
+            showStripe(value)
+            return
+        }
         var color = NSColor.white
 
         if let oldValue = self.oldValue {
@@ -165,10 +171,39 @@ class CurrencyBarItem: CustomButtonTouchBarItem {
             title = String(format: "%@%.2f", prefix, value)
         }
 
-        let regularFont = attributedTitle.attribute(.font, at: 0, effectiveRange: nil) as? NSFont ?? NSFont.systemFont(ofSize: 15)
+        // The title is empty until the first reading arrives.
+        let regularFont = (attributedTitle.length > 0 ? attributedTitle.attribute(.font, at: 0, effectiveRange: nil) as? NSFont : nil)
+            ?? NSFont.systemFont(ofSize: 15)
         let newTitle = NSMutableAttributedString(string: title as String, attributes: [.foregroundColor: color, .font: regularFont, .baselineOffset: 1])
         newTitle.setAlignment(.center, range: NSRange(location: 0, length: title.count))
         attributedTitle = newTitle
+    }
+
+    /// Stripe's currency: the pair stacked small, the price in bold, and how far
+    /// it has moved since Stripe started, green up and red down.
+    private func showStripe(_ value: Float32) {
+        let first = firstValue ?? value
+        firstValue = first
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.maximumFractionDigits = value >= 1000 ? 0 : value >= 1 ? 2 : 4
+        formatter.minimumFractionDigits = value >= 1000 ? 0 : 2
+        let price = formatter.string(from: NSNumber(value: value)) ?? String(value)
+
+        let text = NSMutableAttributedString(attributedString: StripeReadout.stacked(StripeReadout.small(from), StripeReadout.small(to)))
+        text.append(StripeReadout.gap(5))
+        text.append(StripeReadout.figure(price))
+        let change = first == 0 ? 0 : Double((value - first) / first * 100)
+        if abs(change) >= 0.05 {
+            let up = change > 0
+            let color = up ? NSColor(srgbRed: 0x30 / 255, green: 0xD1 / 255, blue: 0x58 / 255, alpha: 1)
+                : NSColor(srgbRed: 1, green: 0x45 / 255, blue: 0x3A / 255, alpha: 1)
+            text.append(StripeReadout.gap(5))
+            text.append(NSAttributedString(string: String(format: "%@ %.1f%%", up ? "▲" : "▼", abs(change)), attributes: [
+                .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium), .foregroundColor: color,
+            ]))
+        }
+        attributedTitle = text
     }
     
     deinit {

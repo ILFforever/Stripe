@@ -13,7 +13,7 @@ class DarkModeBarItem: CustomButtonTouchBarItem, Widget, TearDownable {
     init(identifier: NSTouchBarItem.Identifier) {
         super.init(identifier: identifier, title: "")
         isBordered = false
-        setWidth(value: 24)
+        if !theme.stripeWidgets { setWidth(value: 24) } // MTMR's narrow key; Stripe sizes it like other keys
 
         actions.append(ItemAction(trigger: .singleTap) { [weak self] in self?.DarkModeToggle() })
 
@@ -32,7 +32,12 @@ class DarkModeBarItem: CustomButtonTouchBarItem, Widget, TearDownable {
     }
 
     @objc func refresh() {
-        image = DarkMode.isEnabled ? #imageLiteral(resourceName: "dark-mode-on") : #imageLiteral(resourceName: "dark-mode-off")
+        if theme.stripeWidgets {
+            if style.symbol == nil { image = stripeSymbol("circle.lefthalf.filled") }
+        } else {
+            image = DarkMode.isEnabled ? #imageLiteral(resourceName: "dark-mode-on") : #imageLiteral(resourceName: "dark-mode-off")
+        }
+        setBuiltInActive(DarkMode.isEnabled)
     }
 }
 

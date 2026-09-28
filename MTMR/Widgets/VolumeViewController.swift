@@ -3,7 +3,8 @@ import AVFoundation
 import Cocoa
 import CoreAudio
 
-class VolumeViewController: NSCustomTouchBarItem, SlidableItem, TearDownable {
+class VolumeViewController: NSCustomTouchBarItem, SlidableItem, TearDownable, HasSliderDetents {
+    let detents = SliderDetents()
     // Stored so tearDown() can remove exactly these blocks; they hold the item weakly.
     private lazy var routeListener: AudioObjectPropertyListenerBlock = { [weak self] count, addresses in
         self?.audioRouteChanged(numberAddresses: count, addresses: addresses)
@@ -29,6 +30,15 @@ class VolumeViewController: NSCustomTouchBarItem, SlidableItem, TearDownable {
 
         if image == nil {
             sliderItem = CustomSlider()
+            // The MTMR theme keeps MTMR's plain slider: the system knob, no panel or end icons.
+            // (Set first: the range and value set below live in the cell.)
+            if !Theme.current.sliderPanels {
+                sliderItem.cell = CustomSliderCell()
+                // A plain slider has no width of its own; a preset "width" still wins.
+                let width = sliderItem.widthAnchor.constraint(equalToConstant: 240)
+                width.priority = .defaultLow
+                width.isActive = true
+            }
         } else {
             sliderItem = CustomSlider(knob: image!)
         }
@@ -36,11 +46,11 @@ class VolumeViewController: NSCustomTouchBarItem, SlidableItem, TearDownable {
         sliderItem.action = #selector(VolumeViewController.sliderValueChanged(_:))
         sliderItem.minValue = 0.0
         sliderItem.maxValue = 100.0
-        sliderItem.floatValue = getInputGain() * 100
+        sliderItem.floatValue = VolumeViewController.getInputGain() * 100
 
-        view = image == nil ? sliderItem.withEndIcons(min: "speaker.fill", max: "speaker.wave.3.fill") : sliderItem
+        view = image == nil && Theme.current.sliderPanels ? sliderItem.withEndIcons(min: "speaker.fill", max: "speaker.wave.3.fill") : sliderItem
         
-        currentDeviceId = defaultDeviceID
+        currentDeviceId = VolumeViewController.defaultDeviceID
         self.addAudioRouteChangedListener()
         self.addCurrentAudioVolumeChangedListener()
     }
@@ -57,10 +67,10 @@ class VolumeViewController: NSCustomTouchBarItem, SlidableItem, TearDownable {
 
     func audioRouteChanged(numberAddresses _: UInt32, addresses _: UnsafePointer<AudioObjectPropertyAddress>) {
         self.removeLastAudioVolumeChangeListener()
-        currentDeviceId = defaultDeviceID
+        currentDeviceId = VolumeViewController.defaultDeviceID
         self.addCurrentAudioVolumeChangedListener()
         DispatchQueue.main.async {
-            self.sliderItem.floatValue = self.getInputGain() * 100
+            self.sliderItem.floatValue = VolumeViewController.getInputGain() * 100
         }
     }
     
@@ -71,7 +81,7 @@ class VolumeViewController: NSCustomTouchBarItem, SlidableItem, TearDownable {
             mElement: kAudioObjectPropertyElementMaster
         )
 
-        AudioObjectAddPropertyListenerBlock(defaultDeviceID, &forPropertyAddress, nil, volumeListener)
+        AudioObjectAddPropertyListenerBlock(VolumeViewController.defaultDeviceID, &forPropertyAddress, nil, volumeListener)
     }
     
     private func removeLastAudioVolumeChangeListener() {
@@ -86,7 +96,7 @@ class VolumeViewController: NSCustomTouchBarItem, SlidableItem, TearDownable {
 
     func audioObjectPropertyListenerBlock(numberAddresses _: UInt32, addresses _: UnsafePointer<AudioObjectPropertyAddress>) {
         DispatchQueue.main.async {
-            self.sliderItem.floatValue = self.getInputGain() * 100
+            self.sliderItem.floatValue = VolumeViewController.getInputGain() * 100
         }
     }
 
@@ -100,21 +110,23 @@ class VolumeViewController: NSCustomTouchBarItem, SlidableItem, TearDownable {
 
     /// 0...1, used by press-and-hold sliding on a collapsed popover.
     var sliderValue: Double {
-        get { return Double(getInputGain()) }
+        get { return Double(VolumeViewController.getInputGain()) }
         set {
             let clamped = min(max(newValue, 0), 1)
-            _ = setInputGain(Float32(clamped))
+            _ = VolumeViewController.setInputGain(Float32(clamped))
             sliderItem.floatValue = Float(clamped * 100)
+            detents.update(clamped)
         }
     }
 
     @objc func sliderValueChanged(_ sender: Any) {
         if let sliderItem = sender as? NSSlider {
-            _ = setInputGain(Float32(sliderItem.intValue) / 100.0)
+            _ = VolumeViewController.setInputGain(Float32(sliderItem.intValue) / 100.0)
+            detents.update(Double(sliderItem.intValue) / 100)
         }
     }
 
-    private var defaultDeviceID: AudioObjectID {
+    private static var defaultDeviceID: AudioObjectID {
         var deviceID: AudioObjectID = AudioObjectID(0)
         var size: UInt32 = UInt32(MemoryLayout<AudioObjectID>.size)
         var address: AudioObjectPropertyAddress = AudioObjectPropertyAddress()
@@ -125,7 +137,7 @@ class VolumeViewController: NSCustomTouchBarItem, SlidableItem, TearDownable {
         return deviceID
     }
 
-    private func getInputGain() -> Float32 {
+    static func getInputGain() -> Float32 {
         var volume: Float32 = 0.5
         var size: UInt32 = UInt32(MemoryLayout.size(ofValue: volume))
         var address: AudioObjectPropertyAddress = AudioObjectPropertyAddress()
@@ -136,13 +148,13 @@ class VolumeViewController: NSCustomTouchBarItem, SlidableItem, TearDownable {
         return volume
     }
 
-    private func setInputGain(_ volume: Float32) -> OSStatus {
+    static func setInputGain(_ volume: Float32) -> OSStatus {
         var inputVolume: Float32 = volume
 
         if inputVolume == 0.0 {
-            _ = setMute(mute: 1)
+            _ = VolumeViewController.setMute(mute: 1)
         } else {
-            _ = setMute(mute: 0)
+            _ = VolumeViewController.setMute(mute: 0)
         }
 
         let size: UInt32 = UInt32(MemoryLayout.size(ofValue: inputVolume))
@@ -153,7 +165,7 @@ class VolumeViewController: NSCustomTouchBarItem, SlidableItem, TearDownable {
         return AudioObjectSetPropertyData(defaultDeviceID, &address, 0, nil, size, &inputVolume)
     }
 
-    private func setMute(mute: Int) -> OSStatus {
+    private static func setMute(mute: Int) -> OSStatus {
         var muteVal: Int = mute
         var address: AudioObjectPropertyAddress = AudioObjectPropertyAddress()
         address.mSelector = AudioObjectPropertySelector(kAudioDevicePropertyMute)
