@@ -235,6 +235,24 @@ class SupportedTypesHolder {
             )
         },
 
+        // Tap opens macOS's Screenshot toolbar (as ⇧⌘5); hold selects an area
+        // straight to the clipboard (as ⇧⌃⌘4).
+        "screenshot": { _ in
+            let symbol = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "Screenshot")?
+                .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 16, weight: .regular))
+            symbol?.isTemplate = true
+            return (
+                item: .staticButton(title: ""),
+                actions: [
+                    Action(trigger: .singleTap, value: .shellScript(executable: "/usr/bin/open", parameters: ["-a", "Screenshot"])),
+                    Action(trigger: .longTap, value: .shellScript(executable: "/usr/sbin/screencapture", parameters: ["-i", "-c"])),
+                ],
+                legacyAction: .none,
+                legacyLongAction: .none,
+                parameters: symbol.map { [.image: .image(source: $0)] } ?? [:]
+            )
+        },
+
         "sleep": { _ in (
             item: .staticButton(title: "☕️"),
             actions: [

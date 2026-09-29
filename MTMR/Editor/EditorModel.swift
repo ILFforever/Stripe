@@ -665,6 +665,7 @@ enum ItemCatalog {
         simple("nightShift", "Night Shift", "sun.haze", "System"),
         simple("darkMode", "Dark Mode", "circle.lefthalf.filled", "System"),
         simple("inputsource", "Input Source", "globe", "System"),
+        simple("screenshot", "Screenshot", "camera.viewfinder", "System"),
         simple("sleep", "Sleep", "powersleep", "System"),
         simple("displaySleep", "Display Sleep", "display", "System"),
         ItemTypeInfo(type: "dock", name: "Dock", symbol: "dock.rectangle", category: "System", defaults: [:],

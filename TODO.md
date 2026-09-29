@@ -9,7 +9,7 @@ Picked for being quicker to reach on the bar than through a menu or window.
 - [ ] **Timer / stopwatch**: tap to start, with preset lengths (5, 10, 25 min). Simpler than Pomodoro for everyday use.
 - [ ] **Window snapping**: keys for left half, right half, full screen and next display (uses the Accessibility permission the app already asks for).
 - [ ] **Caffeinate**: a toggle that keeps the Mac awake, lit while on (same kind as `dnd`).
-- [ ] **Screenshot**: a popover with area, window and screen.
+- [ ] **Screenshot**: a popover with area, window and screen. (A basic `screenshot` key exists: tap opens the macOS Screenshot toolbar, hold selects an area to the clipboard.)
 - [ ] **Disk space**: a readout alongside CPU and memory.
 - [ ] **Temperature / fan**: a readout; needs the SMC, a private API, so riskier than the rest.
 - [ ] **Bluetooth devices**: battery levels for AirPods, mouse and keyboard, in a popover.
