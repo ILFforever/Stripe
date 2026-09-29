@@ -17,7 +17,7 @@ MTMR proved the Touch Bar could be yours: any button, any script, any layout, in
 
 ## One app, any bar
 
-![Five bars: Aurora (gradient, glass keys), Grid (grid pattern, blue-tinted glass, keys in groups), Dusk (gradient, rose-tinted glass), Lagoon (honeycomb pattern, teal-tinted glass, now playing) and Carbon (carbon pattern, standard keys, graph readouts)](Resources/screenshots/bars.png)
+![Five bars: Aurora (gradient, glass keys), Grid (grid pattern, blue-tinted glass, keys in groups), Dusk (gradient, rose-tinted glass), Lagoon (honeycomb pattern, teal-tinted glass, now playing) and Carbon (carbon pattern, standard keys, a quiet dashboard)](Resources/screenshots/bars.png)
 
 Every bar above is a single preset file in [`Resources/presets`](Resources/presets). To try one, copy it over your preset (back yours up first):
 

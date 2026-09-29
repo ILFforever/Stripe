@@ -18,10 +18,6 @@
       "colors": "neon"
     },
     {
-      "type": "cpu",
-      "bordered": false
-    },
-    {
       "type": "network",
       "bordered": false,
       "flip": true
@@ -31,7 +27,7 @@
       "align": "right",
       "showIcon": true,
       "showPercentage": true,
-      "percentInside": true
+      "percentInside": false
     },
     {
       "type": "timeButton",
