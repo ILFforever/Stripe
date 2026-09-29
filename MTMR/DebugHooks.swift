@@ -41,6 +41,8 @@ enum DebugHooks {
             (items.first { $0 is GroupBarItem } as? GroupBarItem)?.open()
         case "settings":
             SettingsWindowController.shared.show()
+        case "settings close":
+            SettingsWindowController.shared.close()
         case let command where command.hasPrefix("background"):
             // Trying out bar backgrounds: "background color|gradient|pattern|video <path>|none".
             let parts = command.split(separator: " ", maxSplits: 2).map(String.init)
@@ -89,6 +91,13 @@ enum DebugHooks {
             let match = TouchBarController.shared.items
                 .first { $0.key.rawValue.lowercased().contains(name) }?.value as? CustomButtonTouchBarItem
             match?.callActions(for: .singleTap)
+        case let gesture where gesture.hasPrefix("double ") || gesture.hasPrefix("hold "):
+            // "double music" and "hold music" run the first matching item's double tap or long tap actions.
+            let isDouble = gesture.hasPrefix("double ")
+            let name = gesture.dropFirst(isDouble ? 7 : 5).lowercased()
+            let match = TouchBarController.shared.items
+                .first { $0.key.rawValue.lowercased().contains(name) }?.value as? CustomButtonTouchBarItem
+            match?.callActions(for: isDouble ? .doubleTap : .longTap)
         case let press where press.hasPrefix("press "):
             let name = press.dropFirst(6).lowercased()
             let match = TouchBarController.shared.items.first { identifier, item in
@@ -114,6 +123,13 @@ enum DebugHooks {
         case let tab where tab.hasPrefix("tab "):
             // "tab style" shows the editor's Style tab (item, style, behavior, advanced).
             UserDefaults.standard.set(String(tab.dropFirst(4)), forKey: "inspector.tab")
+        case let command where command.hasPrefix("preset "):
+            // "preset <path>" shows that preset without changing items.json.
+            TouchBarController.shared.reloadPreset(path: String(command.dropFirst(7)))
+        case let command where command.hasPrefix("group "):
+            // "group <title>" opens the folder with that title.
+            let title = String(command.dropFirst(6))
+            (items.first { ($0 as? GroupBarItem)?.title == title } as? GroupBarItem)?.open()
         case "dismiss":
             for case let item as PopoverBarItem in items {
                 item.collapse()

@@ -309,13 +309,14 @@ enum ItemType: Decodable {
     case yandexWeather(interval: Double)
     case currency(interval: Double, from: String, to: String, full: Bool)
     case inputsource
-    case music(interval: Double, disableMarquee: Bool)
+    case music(interval: Double, disableMarquee: Bool, design: MusicBarItem.Design, tapOpens: MusicBarItem.TapOpens,
+               gestures: MusicBarItem.Gestures)
     case group(items: [BarItemDefinition])
     case popover(items: [BarItemDefinition], pressAndHold: Bool, autoClose: Double?, liveIcon: Bool)
     case cluster(items: [BarItemDefinition], options: ClusterOptions)
     case nightShift
     case dnd
-    case pomodoro(workTime: Double, restTime: Double)
+    case pomodoro(workTime: Double, restTime: Double, design: PomodoroBarItem.Design)
     case network(flip: Bool, units: String)
     case darkMode
     case swipe(direction: String, fingers: Int, minOffset: Float, sourceApple: SourceProtocol?, sourceBash: SourceProtocol?)
@@ -345,6 +346,7 @@ enum ItemType: Decodable {
         case autoResize
         case filter
         case disableMarquee
+        case tapOpens, doubleTapDoes, holdDoes
         case alternativeImages
         case sourceApple
         case sourceBash
@@ -487,7 +489,17 @@ enum ItemType: Decodable {
         case .music:
             let interval = try container.decodeIfPresent(Double.self, forKey: .refreshInterval) ?? 5.0
             let disableMarquee = try container.decodeIfPresent(Bool.self, forKey: .disableMarquee) ?? false
-            self = .music(interval: interval, disableMarquee: disableMarquee)
+            let design = try container.decodeIfPresent(String.self, forKey: .design)
+            let tapOpens = try container.decodeIfPresent(String.self, forKey: .tapOpens)
+            var gestures = MusicBarItem.Gestures()
+            if let name = try container.decodeIfPresent(String.self, forKey: .doubleTapDoes),
+               let gesture = MusicBarItem.Gesture(rawValue: name) { gestures.doubleTap = gesture }
+            if let name = try container.decodeIfPresent(String.self, forKey: .holdDoes),
+               let gesture = MusicBarItem.Gesture(rawValue: name) { gestures.hold = gesture }
+            self = .music(interval: interval, disableMarquee: disableMarquee,
+                          design: design.flatMap(MusicBarItem.Design.init(rawValue:)) ?? .lines,
+                          tapOpens: tapOpens.flatMap(MusicBarItem.TapOpens.init(rawValue:)) ?? .none,
+                          gestures: gestures)
 
         case .group:
             let items = try container.decodeIfPresent([BarItemDefinition].self, forKey: .items) ?? []
@@ -518,7 +530,9 @@ enum ItemType: Decodable {
         case .pomodoro:
             let workTime = try container.decodeIfPresent(Double.self, forKey: .workTime) ?? 1500.0
             let restTime = try container.decodeIfPresent(Double.self, forKey: .restTime) ?? 600.0
-            self = .pomodoro(workTime: workTime, restTime: restTime)
+            let design = try container.decodeIfPresent(String.self, forKey: .design)
+            self = .pomodoro(workTime: workTime, restTime: restTime,
+                             design: design.flatMap(PomodoroBarItem.Design.init(rawValue:)) ?? .icon)
 
         case .network:
             let flip = try container.decodeIfPresent(Bool.self, forKey: .flip) ?? false

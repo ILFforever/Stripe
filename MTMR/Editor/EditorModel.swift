@@ -43,6 +43,8 @@ final class EditorItem: ObservableObject, Identifiable {
         if usesStripeLook {
             if StripeKeys.keyedToggles.contains(type) { return false }
             if type == "cpu" || StripeKeys.bareReadouts.contains(type) { return true }
+            // Now Playing: Two lines, Progress and the Mini player sit on a key; the others don't.
+            if type == "music" { return !["lines", "progress", "player"].contains(fields["design"]?.string ?? "lines") }
         }
         return info.borderlessByDefault
     }
@@ -500,6 +502,23 @@ struct ItemTypeInfo {
                 ("chip", "Chip", "A chip icon, and each figure in its graph color"),
                 ("minimal", "Minimal", "Small CPU and GPU labels beside bold figures"),
                 ("graph", "Graph", "A thin meter beside each figure"),
+            ])
+        }
+        if type == "music" {
+            return ("design", MusicBarItem.Design.lines.rawValue, [
+                ("lines", "Two lines", "Artwork, and the title over the artist and how far in it is"),
+                ("progress", "Progress", "A thin bar under the title fills with the track"),
+                ("equalizer", "Equalizer", "Bars that move while something plays"),
+                ("player", "Mini player", "Previous, play/pause and next on the same key"),
+                ("ring", "Ring", "Round artwork in a ring that fills with the track"),
+            ])
+        }
+        if type == "pomodoro" {
+            return ("design", PomodoroBarItem.Design.icon.rawValue, [
+                ("icon", "Icon", "A timer icon; while running, a ring and the time left"),
+                ("ready", "Ready time", "An empty ring and the focus length, so you see what a tap starts"),
+                ("stacked", "Stacked", "What a tap and a hold start, on two lines; while running, when it ends"),
+                ("pill", "Start pill", "A red Focus button; while running, it fills as the time passes"),
             ])
         }
         guard let classic = mtmrLook else { return nil }

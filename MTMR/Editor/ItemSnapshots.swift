@@ -66,11 +66,29 @@ final class ItemSnapshotModel: ObservableObject {
         guard timer == nil else { return }
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in self?.refresh() }
+        // Items with moving parts (the Equalizer's bars) are retaken faster, alone, so they move smoothly.
+        liveTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in self?.refreshLive() }
     }
 
     func stop() {
         timer?.invalidate()
         timer = nil
+        liveTimer?.invalidate()
+        liveTimer = nil
+    }
+
+    private var liveTimer: Timer?
+    /// The editor's items whose bar views have bars that are moving, from the last full refresh.
+    private var liveViews: [UUID: NSView] = [:]
+
+    /// Retakes just the pictures of items with moving parts.
+    private func refreshLive() {
+        guard !liveViews.isEmpty, NSEvent.pressedMouseButtons == 0, session.dragging == nil else { return }
+        var updated = images
+        for (id, view) in liveViews where images[id] != nil {
+            if let image = ItemSnapshotModel.snapshot(of: view) { updated[id] = image }
+        }
+        images = updated
     }
 
     func refresh() {
@@ -104,6 +122,7 @@ final class ItemSnapshotModel: ObservableObject {
 
         var images: [UUID: NSImage] = [:]
         var hidden = Set<UUID>()
+        var live: [UUID: NSView] = [:]
         for (item, identifier) in zip(document.items, identifiers) {
             guard let view = bar.items[identifier]?.view else {
                 hidden.insert(item.id)
@@ -112,9 +131,11 @@ final class ItemSnapshotModel: ObservableObject {
             if let image = ItemSnapshotModel.snapshot(of: view) {
                 images[item.id] = image
             }
+            if ItemSnapshotModel.equalizers(in: view).contains(where: { $0.layer.isMoving }) { live[item.id] = view }
         }
         self.images = images
         self.hidden = hidden
+        liveViews = live
     }
 
     // MARK: Library drag preview
@@ -157,11 +178,47 @@ final class ItemSnapshotModel: ObservableObject {
         preview.image = ItemSnapshotModel.snapshot(of: view)
     }
 
+    /// Names a layer laid over an item's view (the Equalizer's bars) that pictures
+    /// draw themselves; see EqualizerLayer.
+    static let liveOverlayName = "com.ilfforever.stripe.liveOverlay"
+
+    /// `view` and everything in it.
+    private static func allViews(in view: NSView) -> [NSView] {
+        [view] + view.subviews.flatMap { allViews(in: $0) }
+    }
+
+    /// The Equalizer bars laid over `view` or anything in it, with the view each sits on.
+    static func equalizers(in view: NSView) -> [(layer: EqualizerLayer, host: NSView)] {
+        allViews(in: view).flatMap { host in
+            (host.layer?.sublayers ?? []).compactMap { ($0 as? EqualizerLayer).map { (layer: $0, host: host) } }
+        }
+    }
+
     static func snapshot(of view: NSView) -> NSImage? {
         let bounds = view.bounds
         guard bounds.width > 0, bounds.height > 0,
               let rep = view.bitmapImageRepForCachingDisplay(in: bounds) else { return nil }
+        // cacheDisplay draws a layer laid over a view as it is at rest, without its
+        // animation, so the bars are kept out of it and drawn as they are now. Hidden and
+        // shown again in one transaction, so the real bar never sees the change.
+        let bars = equalizers(in: view)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        bars.forEach { $0.layer.isHidden = true }
         view.cacheDisplay(in: bounds, to: rep)
+        bars.forEach { $0.layer.isHidden = false }
+        CATransaction.commit()
+        if !bars.isEmpty, let context = NSGraphicsContext(bitmapImageRep: rep) {
+            let now = CACurrentMediaTime()
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = context
+            for (layer, host) in bars {
+                var frame = host.convert(layer.frame, to: view)
+                if view.isFlipped { frame.origin.y = bounds.height - frame.maxY }
+                layer.drawStill(in: frame, at: now)
+            }
+            NSGraphicsContext.restoreGraphicsState()
+        }
         let image = NSImage(size: bounds.size)
         image.addRepresentation(rep)
         return image

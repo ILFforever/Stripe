@@ -88,7 +88,7 @@ except position (`align`), which only top-level items have.
 
 ### Position and size
 - `align`: `left`, `center` (default) or `right`.
-- `width`: points. Now Playing is never narrower than 180.
+- `width`: points. Now Playing in the MTMR look is never narrower than 180.
 
 ### Label
 - `title`: text. For script items, the script's output is the title.
@@ -150,7 +150,12 @@ All of these are subject to the Haptic Feedback switch in Stripe's menu-bar menu
 ### Type-specific
 Each type's own keys (e.g. `refreshInterval`, `formatTemplate`, `showPercentage`, `pressAndHold`, `dividers`) are listed in its catalog entry in `MTMR/Editor/EditorModel.swift`, and shown first in its inspector.
 
-**Designs.** Some types have built-in designs, picked on the Style tab: `"theme": "mtmr"` gives MTMR's classic look where it differs, and `performance` takes `"design"`: `"chip"` (default), `"minimal"` or `"graph"`.
+**Designs.** Some types have built-in designs, picked on the Style tab: `"theme": "mtmr"` gives MTMR's classic look where it differs, and these take `"design"`:
+- `performance`: `"chip"` (default), `"minimal"` or `"graph"`.
+- `pomodoro`: `"icon"` (default), `"ready"`, `"stacked"` or `"pill"`.
+- `music`: `"lines"` (default), `"progress"`, `"equalizer"`, `"player"` (previous, play/pause and next on the same key) or `"ring"`. Each shows "Not playing" when nothing is.
+
+**Now Playing's controls.** `"tapOpens"` sets what a tap on `music` does: nothing extra (plays or pauses, the default), `"side"` (previous, play/pause and next slide out beside the key, and slide back after a few seconds or on another tap) or `"full"` (the controls open across the bar with the track's progress, and a back arrow at the item's end). A double tap and a press and hold are previous and next unless `"doubleTapDoes"` and `"holdDoes"` say otherwise: each is `"previous"`, `"next"`, `"playPause"`, `"side"`, `"full"` or `"nothing"` (a gesture set to nothing has no action, so a single tap doesn't wait for a possible double).
 
 **Pages.** Tapping `cpu`, `gpu` or `performance` opens its page (holding opens Activity Monitor) across the bar (the CPU page, the GPU page, or the unified one), like the battery's overview. `"panelTiles"` picks the tiles (`cpu`, `cores`, `graph`, `load`, `gpu`, `gpuDetail`, `gpuMemory`, `memory`, `apps`) and `"panelCloseSide"` which end the back button is at.
 

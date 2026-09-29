@@ -11,7 +11,8 @@
 //  closes (i.e. when Stripe quits):
 //
 //    playing 1                                   (or 0)
-//    info {"title":"…","artist":"…","pid":123}   (the track, and the app playing it)
+//    info {"title":"…","artist":"…","pid":123,…} (the track, the app playing it, the
+//                                                 artwork's file, and where playback is)
 //
 
 #import <Foundation/Foundation.h>
@@ -47,11 +48,30 @@ __attribute__((visibility("default"))) void stripe_now_playing_run(void) {
         });
         if (!getInfo) return;
         getInfo(queue, ^(NSDictionary *info) {
+            // The artwork goes to a file named for its contents, written once per picture.
+            NSString *artwork = @"";
+            NSData *artworkData = info[@"kMRMediaRemoteNowPlayingInfoArtworkData"];
+            if ([artworkData isKindOfClass:[NSData class]] && artworkData.length > 0) {
+                NSString *name = [NSString stringWithFormat:@"stripe-artwork-%lu-%lu", (unsigned long)artworkData.hash,
+                                                            (unsigned long)artworkData.length];
+                artwork = [NSTemporaryDirectory() stringByAppendingPathComponent:name];
+                if (![[NSFileManager defaultManager] fileExistsAtPath:artwork]) [artworkData writeToFile:artwork atomically:YES];
+            }
+            // Where playback was at `timestamp`, and how fast it's moving since.
+            NSNumber *elapsed = info[@"kMRMediaRemoteNowPlayingInfoElapsedTime"];
+            NSNumber *duration = info[@"kMRMediaRemoteNowPlayingInfoDuration"];
+            NSNumber *rate = info[@"kMRMediaRemoteNowPlayingInfoPlaybackRate"];
+            NSDate *timestamp = info[@"kMRMediaRemoteNowPlayingInfoTimestamp"];
             void (^emit)(int) = ^(int pid) {
                 NSDictionary *line = @{
                     @"title": [info[@"kMRMediaRemoteNowPlayingInfoTitle"] description] ?: @"",
                     @"artist": [info[@"kMRMediaRemoteNowPlayingInfoArtist"] description] ?: @"",
                     @"pid": @(pid),
+                    @"artwork": artwork,
+                    @"elapsed": [elapsed isKindOfClass:[NSNumber class]] ? elapsed : @(-1),
+                    @"duration": [duration isKindOfClass:[NSNumber class]] ? duration : @(0),
+                    @"rate": [rate isKindOfClass:[NSNumber class]] ? rate : @(0),
+                    @"timestamp": [timestamp isKindOfClass:[NSDate class]] ? @(timestamp.timeIntervalSince1970) : @(0),
                 };
                 NSData *json = [NSJSONSerialization dataWithJSONObject:line options:0 error:nil];
                 NSString *text = json ? [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding] : nil;

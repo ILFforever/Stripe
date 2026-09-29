@@ -60,7 +60,8 @@ enum StripeReadout {
         NSAttributedString(string: " ", attributes: [.font: NSFont.systemFont(ofSize: 15), .kern: width - 4])
     }
 
-    private static func attachment(_ image: NSImage, size: NSSize) -> NSAttributedString {
+    /// `image` as an inline picture, centered on the figures' line.
+    static func attachment(_ image: NSImage, size: NSSize) -> NSAttributedString {
         let attachment = NSTextAttachment()
         attachment.image = image
         // Centered on the figures' line.

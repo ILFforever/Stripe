@@ -9,9 +9,15 @@ import Cocoa
 
 class AppScrubberTouchBarItem: NSCustomTouchBarItem {
     private var scrollView = NSScrollView()
+    /// With autoResize, the apps sit in a plain row instead, sized to fit them.
+    /// A scroll view inside the bar's scrolling middle would take every swipe
+    /// that lands on it, so the bar could never scroll back past it.
+    private let row = NSView()
     private var autoResize: Bool = false
     private var widthConstraint: NSLayoutConstraint?
     private let filter: NSRegularExpression?
+    /// The look it was built with, for the app keys it makes later.
+    private let theme = Theme.current
 
     private var persistentAppIdentifiers: [String] = []
     private var runningAppsIdentifiers: [String] = []
@@ -27,7 +33,9 @@ class AppScrubberTouchBarItem: NSCustomTouchBarItem {
         self.filter = filter
         super.init(identifier: identifier)
         self.autoResize = autoResize
-        view = scrollView
+        view = autoResize ? row : scrollView
+        // Neither has a height of its own; inside a folder nothing else gives it one.
+        view.heightAnchor.constraint(equalToConstant: ItemStyle.barHeight).isActive = true
 
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(hardReloadItems), name: NSWorkspace.didLaunchApplicationNotification, object: nil)
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(hardReloadItems), name: NSWorkspace.didTerminateApplicationNotification, object: nil)
@@ -60,13 +68,7 @@ class AppScrubberTouchBarItem: NSCustomTouchBarItem {
     }
     
     func updateSize() {
-        if self.autoResize {
-            self.widthConstraint?.isActive = false
-            
-            let width = self.scrollView.documentView?.fittingSize.width ?? 0
-            self.widthConstraint = self.scrollView.widthAnchor.constraint(equalToConstant: width)
-            self.widthConstraint!.isActive = true
-        }
+        // A plain row (autoResize) takes its apps' width by itself.
     }
     
     func reloadData() {
@@ -74,12 +76,26 @@ class AppScrubberTouchBarItem: NSCustomTouchBarItem {
         let stackView = NSStackView(views: items.compactMap { $0.view })
         stackView.spacing = 1
         stackView.orientation = .horizontal
+        if autoResize {
+            row.subviews.forEach { $0.removeFromSuperview() }
+            stackView.translatesAutoresizingMaskIntoConstraints = false
+            row.addSubview(stackView)
+            NSLayoutConstraint.activate([
+                stackView.leadingAnchor.constraint(equalTo: row.leadingAnchor),
+                stackView.trailingAnchor.constraint(equalTo: row.trailingAnchor),
+                stackView.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+            ])
+            return
+        }
         let visibleRect = self.scrollView.documentVisibleRect
         scrollView.documentView = stackView
         stackView.scroll(visibleRect.origin)
     }
 
     public func createAppButton(for app: DockItem) -> DockBarItem {
+        let outer = Theme.building
+        Theme.building = theme
+        defer { Theme.building = outer }
         let item = DockBarItem(app)
         item.isBordered = false
         item.actions.append(contentsOf: [
@@ -138,6 +154,8 @@ class AppScrubberTouchBarItem: NSCustomTouchBarItem {
         for app in NSWorkspace.shared.runningApplications {
             guard app.activationPolicy == NSApplication.ActivationPolicy.regular else { continue }
             guard let bundleIdentifier = app.bundleIdentifier else { continue }
+            // Stripe is a regular app only while Settings is open; it isn't one to switch to.
+            guard bundleIdentifier != Bundle.main.bundleIdentifier else { continue }
             if let filter = self.filter,
                 let name = app.localizedName,
                 filter.numberOfMatches(in: name, options: [], range: NSRange(location: 0, length: name.count)) == 0 {
@@ -213,7 +231,9 @@ class DockBarItem: CustomButtonTouchBarItem {
         self.dockItem = app
         super.init(identifier: .init(app.bundleIdentifier), title: "")
         dotView.wantsLayer = true
-        
+        // Stripe: the frontmost app sits on a lit tile.
+        if theme.stripeWidgets { style.activeBackground = NSColor(white: 1, alpha: 0.14) }
+
         image = app.icon
         image?.size = NSSize(width: iconWidth, height: iconWidth)
 
@@ -234,6 +254,14 @@ class DockBarItem: CustomButtonTouchBarItem {
     
     func redrawDotView() {
         dotView.layer?.backgroundColor = isRunning ? NSColor.white.cgColor : NSColor.clear.cgColor
+        if theme.stripeWidgets {
+            // Stripe: a round dot under every running app, the frontmost one included.
+            isActive = isFrontmost
+            dotView.layer?.cornerRadius = 1.5
+            dotView.frame.size = NSSize(width: 3, height: 3)
+            dotView.setFrameOrigin(NSPoint(x: 18 - 1.5, y: iconWidth - 4))
+            return
+        }
         dotView.frame.size = NSSize(width: isFrontmost ? iconWidth - 14 : 3, height: 3)
         dotView.setFrameOrigin(NSPoint(x: 18.0 - Double(dotView.frame.size.width) / 2.0, y: iconWidth - 5))
     }

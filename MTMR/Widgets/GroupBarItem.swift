@@ -65,7 +65,10 @@ class GroupBarItem: CustomButtonTouchBarItem, NSTouchBarDelegate, TearDownable {
         centerScrollArea = NSTouchBarItem.Identifier("com.toxblh.mtmr.scrollArea.".appending(UUID().uuidString))
         scrollArea = ScrollViewItem(identifier: centerScrollArea, items: centerItems)
 
-        TouchBarController.shared.showSubBar(identifiers: leftIdentifiers + [centerScrollArea] + rightIdentifiers, delegate: self)
+        // Stripe: the items on a tray, with a back chevron unless the folder has its own close key.
+        let hasClose = jsonItems.contains { $0.typeName == "close" }
+        TouchBarController.shared.showSubBar(identifiers: leftIdentifiers + [centerScrollArea] + rightIdentifiers, delegate: self,
+                                             tray: theme.stripeWidgets, backSide: hasClose ? nil : .right)
     }
 
     /// The folder's bar as it would show, for Settings to picture without opening

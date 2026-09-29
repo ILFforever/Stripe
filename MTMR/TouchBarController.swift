@@ -14,7 +14,15 @@ struct ExactItem {
 }
 
 private let userAppSupport = NSSearchPathForDirectoriesInDomains(.applicationSupportDirectory, .userDomainMask, true).first!
-let appSupportDirectory = userAppSupport.appending("/\(Brand.name)")
+/// With STRIPE_DEBUG=1, STRIPE_SUPPORT_DIR keeps a test run's preset and history in a
+/// folder of its own, apart from the user's.
+let appSupportDirectory: String = {
+    let environment = ProcessInfo.processInfo.environment
+    if environment["STRIPE_DEBUG"] == "1", let directory = environment["STRIPE_SUPPORT_DIR"], !directory.isEmpty {
+        return directory
+    }
+    return userAppSupport.appending("/\(Brand.name)")
+}()
 let standardConfigPath = appSupportDirectory.appending("/items.json")
 private let legacyConfigPath = userAppSupport.appending("/\(Brand.legacyName)/items.json")
 
@@ -55,7 +63,7 @@ extension ItemType {
             return "com.toxblh.mtmr.currency"
         case .inputsource:
             return "com.toxblh.mtmr.inputsource."
-        case .music(interval: _):
+        case .music:
             return "com.toxblh.mtmr.music."
         case .group(items: _):
             return "com.toxblh.mtmr.groupBar."
@@ -67,7 +75,7 @@ extension ItemType {
             return "com.toxblh.mtmr.nightShift."
         case .dnd:
             return "com.toxblh.mtmr.dnd."
-        case .pomodoro(interval: _):
+        case .pomodoro:
             return PomodoroBarItem.identifier
         case .network(flip: _):
             return NetworkBarItem.identifier
@@ -460,14 +468,34 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
     private var subBarItem: NSCustomTouchBarItem?
 
     /// Shows a folder, popover or page in place of the main bar: its items in a
-    /// row, over the bar's background, like the main bar.
-    func showSubBar(identifiers: [NSTouchBarItem.Identifier], delegate: NSTouchBarDelegate) {
+    /// row, over the bar's background, like the main bar. With `tray` (Stripe's
+    /// folders), the row sits on a tray, like a panel, with a back chevron at
+    /// the `backSide` end if one is given.
+    func showSubBar(identifiers: [NSTouchBarItem.Identifier], delegate: NSTouchBarDelegate, tray: Bool = false,
+                    backSide: Align? = nil) {
         subBarOwner = delegate
         let views = identifiers.compactMap { delegate.touchBar?(touchBar, makeItemForIdentifier: $0)?.view }
         let row = NSStackView(views: views)
         row.orientation = .horizontal
         row.spacing = 8
-        let background = BarBackgroundView(content: row)
+        var content: NSView = row
+        if tray {
+            // The row takes the spare room, so its middle (which scrolls) gets it.
+            row.setHuggingPriority(.init(1), for: .horizontal)
+            var views: [NSView] = [row]
+            if let side = backSide {
+                let back = PanelBackButton(pointing: side) { [weak self] in self?.restoreMainBar() }
+                views = side == .left ? [back, PanelDivider()] + views : views + [PanelDivider(), back]
+            }
+            let stack = NSStackView(views: views)
+            stack.orientation = .horizontal
+            stack.distribution = .fill
+            stack.spacing = 6
+            stack.edgeInsets = NSEdgeInsets(top: 0, left: 4, bottom: 0, right: 4)
+            stack.setHuggingPriority(.init(1), for: .horizontal)
+            content = PanelSlab(content: stack)
+        }
+        let background = BarBackgroundView(content: content)
         background.pausesVideoOnBattery = barSettings.pauseVideoOnBattery
         background.background = barSettings.background
         let item = NSCustomTouchBarItem(identifier: subBarIdentifier)
@@ -585,8 +613,15 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
             barItem = CurrencyBarItem(identifier: identifier, interval: interval, from: from, to: to, full: full)
         case .inputsource:
             barItem = InputSourceBarItem(identifier: identifier)
-        case let .music(interval: interval, disableMarquee: disableMarquee):
-            barItem = MusicBarItem(identifier: identifier, interval: interval, disableMarquee: disableMarquee)
+        case let .music(interval: interval, disableMarquee: disableMarquee, design: design, tapOpens: tapOpens, gestures: gestures):
+            // The controls panel's back chevron sits at the item's end of the bar.
+            let closeSide: Align = item.align == .left ? .left : .right
+            if design == .player, Theme.current.stripeWidgets {
+                barItem = MiniPlayerBarItem(identifier: identifier, tapOpens: tapOpens, closeSide: closeSide)
+            } else {
+                barItem = MusicBarItem(identifier: identifier, interval: interval, disableMarquee: disableMarquee,
+                                       design: design, tapOpens: tapOpens, gestures: gestures, closeSide: closeSide)
+            }
         case let .group(items: items):
             barItem = GroupBarItem(identifier: identifier, items: items)
         case let .popover(items: items, pressAndHold: pressAndHold, autoClose: autoClose, liveIcon: liveIcon):
@@ -598,8 +633,8 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
             barItem = NightShiftBarItem(identifier: identifier)
         case .dnd:
             barItem = DnDBarItem(identifier: identifier)
-        case let .pomodoro(workTime: workTime, restTime: restTime):
-            barItem = PomodoroBarItem(identifier: identifier, workTime: workTime, restTime: restTime)
+        case let .pomodoro(workTime: workTime, restTime: restTime, design: design):
+            barItem = PomodoroBarItem(identifier: identifier, workTime: workTime, restTime: restTime, design: design)
         case let .network(flip: flip, units: units):
             barItem = NetworkBarItem(identifier: identifier, flip: flip, units: units)
         case .darkMode:
@@ -645,6 +680,13 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
         }
         if case let .glassTint(tint)? = item.additionalParameters[.glassTint], let item = barItem as? CustomButtonTouchBarItem {
             item.glassTint = tint
+        }
+        // The Mini player isn't a button, but takes the same key look.
+        if let mini = barItem as? MiniPlayerBarItem {
+            if case let .bordered(bordered)? = item.additionalParameters[.bordered] { mini.setKeyLook(bordered: bordered) }
+            if case let .background(color)? = item.additionalParameters[.background] { mini.setKeyLook(background: color) }
+            if case let .glass(glass)? = item.additionalParameters[.glass] { mini.setKeyLook(glass: glass) }
+            if case let .glassTint(tint)? = item.additionalParameters[.glassTint] { mini.setKeyLook(glassTint: tint) }
         }
         if case var .width(value)? = item.additionalParameters[.width], let widthBarItem = barItem as? CanSetWidth {
             if barItem is MusicBarItem { value = max(value, MusicBarItem.minimumWidth) }

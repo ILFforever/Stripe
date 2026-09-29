@@ -89,9 +89,83 @@ struct ItemInspector: View {
 
     // MARK: Tabs
 
+    /// What a tap on Now Playing does for each "tapOpens" choice.
+    private static let nowPlayingTaps: [(id: String, name: String, does: String, help: String)] = [
+        ("none", "Play/Pause", "Plays or pauses", "A tap plays or pauses whatever is playing."),
+        ("side", "Side", "Slides out controls", "A tap slides previous, play/pause and next out beside the key; they slide back after a few seconds, or on another tap."),
+        ("full", "Full", "Opens the controls", "A tap opens the controls across the bar: the track, how far in it is, and previous, play/pause and next, with a back arrow at the end."),
+    ]
+
+    /// What the double tap and press and hold can be set to, and what each does by default.
+    private static let nowPlayingGestures: [(id: String, title: String)] = MusicBarItem.Gesture.allCases.map { ($0.rawValue, $0.title) }
+
+    /// A gesture's setting, with previous and next as the unset defaults.
+    private func nowPlayingGesture(_ key: String, fallback: String) -> String {
+        item[string: key] ?? fallback
+    }
+
+    /// Now Playing's Controls: what each gesture does with the current settings.
+    @ViewBuilder
+    private var nowPlayingControls: some View {
+        let tap = item[string: "tapOpens"] ?? "none"
+        let titles = Dictionary(uniqueKeysWithValues: ItemInspector.nowPlayingGestures.map { ($0.id, $0.title) })
+        FieldRow(label: "Tap") {
+            Text(ItemInspector.nowPlayingTaps.first { $0.id == tap }?.does ?? "").foregroundColor(.secondary)
+        }
+        FieldRow(label: "Double tap") {
+            Text(titles[nowPlayingGesture("doubleTapDoes", fallback: "previous")] ?? "").foregroundColor(.secondary)
+        }
+        FieldRow(label: "Press and hold") {
+            Text(titles[nowPlayingGesture("holdDoes", fallback: "next")] ?? "").foregroundColor(.secondary)
+        }
+        Text("Change them under Click controls. The Mini player design has keys of its own for previous, play/pause and next.")
+            .font(.caption)
+            .foregroundColor(.secondary)
+            .padding(.vertical, 8)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// Now Playing's Click controls: what a tap, a double tap and a press and hold do.
+    @ViewBuilder
+    private var nowPlayingClickControls: some View {
+        let taps = ItemInspector.nowPlayingTaps
+        let chosen = item[string: "tapOpens"] ?? "none"
+        FieldRow(label: "Tap", help: taps.first { $0.id == chosen }?.help) {
+            Picker("", selection: Binding(get: { chosen }, set: { item[string: "tapOpens"] = $0 == "none" ? nil : $0 })) {
+                ForEach(taps, id: \.id) { choice in
+                    Text(choice.name).tag(choice.id)
+                }
+            }
+            .pickerStyle(.segmented).labelsHidden().fixedSize()
+        }
+        gestureRow("Double tap", key: "doubleTapDoes", fallback: "previous")
+        gestureRow("Press and hold", key: "holdDoes", fallback: "next")
+    }
+
+    /// One gesture's menu: it keeps its default when unset.
+    private func gestureRow(_ label: String, key: String, fallback: String) -> some View {
+        FieldRow(label: label) {
+            Picker("", selection: Binding(get: { nowPlayingGesture(key, fallback: fallback) },
+                                          set: { item[string: key] = $0 == fallback ? nil : $0 })) {
+                ForEach(ItemInspector.nowPlayingGestures, id: \.id) { choice in
+                    Text(choice.title).tag(choice.id)
+                }
+            }
+            .pickerStyle(.menu).labelsHidden().fixedSize()
+        }
+    }
+
     /// What the item is: its own settings, the Battery Overview, a container's items.
     @ViewBuilder
     private var itemTab: some View {
+        if item.type == "music" {
+            InspectorGroup(title: "Controls", symbol: "playpause") {
+                nowPlayingControls
+            }
+            InspectorGroup(title: "Click controls", symbol: "hand.tap") {
+                nowPlayingClickControls
+            }
+        }
         if !item.info.fields.isEmpty {
             InspectorGroup(title: item.info.name, symbol: item.info.symbol) {
                 ForEach(item.info.fields) { field in
@@ -127,15 +201,31 @@ struct ItemInspector: View {
         if item.info.designs != nil || item.info.performancePage != nil {
             InspectorGroup(title: "Design", symbol: "sparkles") {
                 if let designs = item.info.designs {
-                    let chosen = item[string: designs.key] ?? designs.fallback
-                    FieldRow(label: "Design", help: designs.options.first { $0.id == chosen }?.help) {
-                        Picker("", selection: Binding(get: { chosen },
-                                                      set: { item[string: designs.key] = $0 == designs.fallback ? nil : $0 })) {
-                            ForEach(designs.options, id: \.id) { option in
-                                Text(option.name).tag(option.id)
+                    // A widget with its own designs and an MTMR look offers that look as
+                    // one more design, stored as "theme": "mtmr" rather than a design.
+                    let classic = designs.key == "design" ? item.info.mtmrLook : nil
+                    let options = designs.options + (classic.map { [("mtmr", "MTMR classic", $0)] } ?? [])
+                    let chosen = classic != nil && item[string: "theme"] == "mtmr" ? "mtmr" : (item[string: designs.key] ?? designs.fallback)
+                    FieldRow(label: "Design", help: options.first { $0.0 == chosen }?.2) {
+                        let picker = Picker("", selection: Binding(get: { chosen }, set: { choice in
+                            if choice == "mtmr" {
+                                item[string: "theme"] = "mtmr"
+                                item[string: designs.key] = nil
+                            } else {
+                                if classic != nil { item[string: "theme"] = nil }
+                                item[string: designs.key] = choice == designs.fallback ? nil : choice
+                            }
+                        })) {
+                            ForEach(options, id: \.0) { option in
+                                Text(option.1).tag(option.0)
                             }
                         }
-                        .pickerStyle(.segmented).labelsHidden().fixedSize()
+                        // Segments for a few designs; a menu once they'd crowd the inspector.
+                        if options.count > 4 {
+                            picker.pickerStyle(.menu).labelsHidden().fixedSize()
+                        } else {
+                            picker.pickerStyle(.segmented).labelsHidden().fixedSize()
+                        }
                     }
                 }
                 if item.info.performancePage != nil {
