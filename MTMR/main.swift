@@ -18,10 +18,20 @@ for name in ["StatusImage", "brightnessDown", "brightnessUp", "dark-mode-off", "
 
 let app = NSApplication.shared
 
-// A main menu is never shown for an LSUIElement app, but its key equivalents
-// still route ⌘C/⌘V/⌘X/⌘A/⌘Z to text fields (e.g. in Settings). The storyboard
-// used to provide it.
+// A main menu is only shown while Settings is open (see SettingsWindowController),
+// but its key equivalents route ⌘C/⌘V/⌘X/⌘A/⌘Z to text fields (e.g. in Settings)
+// either way. The storyboard used to provide it.
 let mainMenu = NSMenu()
+// The application menu, shown while Settings is open and Stripe has a Dock icon.
+let appItem = NSMenuItem()
+let appMenu = NSMenu(title: Brand.name)
+appMenu.addItem(withTitle: "Settings…", action: #selector(AppDelegate.openSettings(_:)), keyEquivalent: ",")
+appMenu.addItem(.separator())
+appMenu.addItem(withTitle: "Hide \(Brand.name)", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+appMenu.addItem(.separator())
+appMenu.addItem(withTitle: "Quit \(Brand.name)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+appItem.submenu = appMenu
+mainMenu.addItem(appItem)
 let editItem = NSMenuItem()
 let editMenu = NSMenu(title: "Edit")
 editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
