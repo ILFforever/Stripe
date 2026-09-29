@@ -6,7 +6,7 @@
 //  Copyright © 2018 Anton Palgunov. All rights reserved.
 //
 
-import Foundation
+import AppKit
 
 class DnDBarItem: CustomButtonTouchBarItem, TearDownable {
     private var timer: Timer!
@@ -32,8 +32,7 @@ class DnDBarItem: CustomButtonTouchBarItem, TearDownable {
     }
 
     func DnDToggle() {
-        DoNotDisturb.isEnabled = !DoNotDisturb.isEnabled
-        refresh()
+        DoNotDisturb.toggle { [weak self] in self?.refresh() }
     }
 
     @objc func refresh() {
@@ -47,42 +46,73 @@ class DnDBarItem: CustomButtonTouchBarItem, TearDownable {
     }
 }
 
-public struct DoNotDisturb {
-    private static let appId = "com.apple.notificationcenterui" as CFString
-    private static let dndPref = "com.apple.notificationcenterui.dndprefs_changed"
+/// Do Not Disturb, as a Focus. macOS 12 replaced the old setting (which MTMR
+/// wrote, and which macOS now ignores) with Focus, and gives other apps no way
+/// to switch it. So the key runs a shortcut the user makes once in Shortcuts,
+/// "Stripe Do Not Disturb", whose one action is Set Focus › Do Not Disturb ›
+/// Toggle.
+public enum DoNotDisturb {
+    static let shortcutName = "Stripe Do Not Disturb"
+    /// What Stripe last set, for when the Focus file can't be read.
+    private static var lastSet = false
+    private static let queue = DispatchQueue(label: "com.ilfforever.stripe.dnd")
 
-    private static func set(_ key: String, value: CFPropertyList?) {
-        CFPreferencesSetValue(key as CFString, value, appId, kCFPreferencesCurrentUser, kCFPreferencesCurrentHost)
-    }
-
-    private static func commitChanges() {
-        CFPreferencesSynchronize(appId, kCFPreferencesCurrentUser, kCFPreferencesCurrentHost)
-        DistributedNotificationCenter.default().postNotificationName(NSNotification.Name(dndPref), object: nil, userInfo: nil, deliverImmediately: true)
-        NSRunningApplication.runningApplications(withBundleIdentifier: appId as String).first?.terminate()
-    }
-
-    private static func enable() {
-        set("dndStart", value: nil)
-        set("dndEnd", value: nil)
-        set("doNotDisturb", value: true as CFPropertyList)
-        set("doNotDisturbDate", value: Date() as CFPropertyList)
-        commitChanges()
-    }
-
-    private static func disable() {
-        set("dndStart", value: nil)
-        set("dndEnd", value: nil)
-        set("doNotDisturb", value: false as CFPropertyList)
-        set("doNotDisturbDate", value: nil)
-        commitChanges()
-    }
-
+    /// Whether a Focus is on: from the file macOS keeps while one is, else
+    /// what Stripe last set (so it can be wrong after a change made elsewhere).
     static var isEnabled: Bool {
-        get {
-            return CFPreferencesGetAppBooleanValue("doNotDisturb" as CFString, appId, nil)
+        let path = NSHomeDirectory() + "/Library/DoNotDisturb/DB/Assertions.json"
+        guard let data = FileManager.default.contents(atPath: path),
+              let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let entries = json["data"] as? [[String: Any]] else { return lastSet }
+        return entries.contains { !(($0["storeAssertionRecords"] as? [Any]) ?? []).isEmpty }
+    }
+
+    /// Runs the shortcut off the main thread, then calls `done` on it. Without
+    /// the shortcut, explains how to make it.
+    static func toggle(done: @escaping () -> Void) {
+        queue.async {
+            let ran = run(["run", shortcutName])
+            DispatchQueue.main.async {
+                if ran {
+                    lastSet.toggle()
+                } else {
+                    explainSetup()
+                }
+                done()
+            }
         }
-        set {
-            newValue ? enable() : disable()
+    }
+
+    /// Runs /usr/bin/shortcuts; true if it exited cleanly.
+    private static func run(_ arguments: [String]) -> Bool {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/shortcuts")
+        task.arguments = arguments
+        task.standardOutput = FileHandle.nullDevice
+        task.standardError = FileHandle.nullDevice
+        do {
+            try task.run()
+        } catch {
+            return false
+        }
+        task.waitUntilExit()
+        return task.terminationStatus == 0
+    }
+
+    private static func explainSetup() {
+        let alert = NSAlert()
+        alert.messageText = "Make the \u{201C}\(shortcutName)\u{201D} shortcut"
+        alert.informativeText = """
+        macOS doesn't let apps switch Focus, so the Do Not Disturb key runs a shortcut. \
+        In Shortcuts, make a new shortcut named \u{201C}\(shortcutName)\u{201D} with one action: \
+        Set Focus, set to toggle Do Not Disturb. Then tap the key again.
+        """
+        alert.addButton(withTitle: "Open Shortcuts")
+        alert.addButton(withTitle: "Cancel")
+        NSApp.activate(ignoringOtherApps: true)
+        if alert.runModal() == .alertFirstButtonReturn,
+           let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.shortcuts") {
+            NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
         }
     }
 }

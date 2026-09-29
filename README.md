@@ -214,7 +214,7 @@ Press and hold the battery item to open its page across the bar (`"holdOpens": "
 - music (tap for pause, longTap for next)
 - dock (half-long click to open app, full-long click to kill app)
 - nightShift
-- dnd (Don't disturb)
+- dnd (Do Not Disturb; runs a shortcut named "Stripe Do Not Disturb" that you make once in Shortcuts: Set Focus › Do Not Disturb › Toggle)
 - darkMode
 - pomodoro
 - network
