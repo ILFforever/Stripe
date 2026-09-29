@@ -89,6 +89,13 @@ class CustomButtonTouchBarItem: NSCustomTouchBarItem, NSGestureRecognizerDelegat
         }
     }
 
+    /// Shown while on in place of `style.activeBackground`, for items that change
+    /// it often (the Pomodoro pill's progress): only the color changes, so it
+    /// doesn't rebuild the key.
+    var activeFill: NSColor? {
+        didSet { applyStateBackground() }
+    }
+
     /// Whether the item is on (a toggle that's enabled, or its "activeWhen" rule
     /// holds); shows `style.activeBackground`.
     var isActive = false {
@@ -370,7 +377,7 @@ class CustomButtonTouchBarItem: NSCustomTouchBarItem, NSGestureRecognizerDelegat
     var drawsGlass: Bool {
         guard usesGlass, isBordered, backgroundColor == nil else { return false }
         if isPressed, style.pressedBackground != nil { return false }
-        if isActive, !isPressed, style.activeBackground != nil { return false }
+        if isActive, !isPressed, (activeFill ?? style.activeBackground) != nil { return false }
         return true
     }
 
@@ -397,7 +404,7 @@ class CustomButtonTouchBarItem: NSCustomTouchBarItem, NSGestureRecognizerDelegat
         var color = fillColor
         if isPressed, let pressed = style.pressedBackground ?? drawnStandardPressed {
             color = pressed
-        } else if isActive, let active = style.activeBackground {
+        } else if isActive, let active = activeFill ?? style.activeBackground {
             color = active
         }
         if button.isBordered {
@@ -558,13 +565,29 @@ class CustomButtonCell: NSButtonCell {
         }
         let size = CustomHeightButton.measure(title)
         let bounds = controlView.bounds
-        // With an icon, stay in the space beside it; otherwise use the whole key.
-        let midX = image == nil ? bounds.midX : frame.midX
-        let rect = NSRect(x: midX - ceil(size.width) / 2,
-                          y: bounds.midY - ceil(size.height) / 2,
+        // With an icon, just past it (see imageRect); otherwise centered in the key.
+        let x = image == nil ? bounds.midX - ceil(size.width) / 2
+            : imageRect(forBounds: bounds).maxX + CustomButtonCell.multilineImageGap
+        let rect = NSRect(x: x, y: bounds.midY - ceil(size.height) / 2,
                           width: ceil(size.width), height: ceil(size.height))
         title.draw(with: rect, options: [.usesLineFragmentOrigin])
         return rect
+    }
+
+    /// Between an icon and a multi-line title (CustomHeightButton allows 4).
+    static let multilineImageGap: CGFloat = 4
+
+    /// NSButtonCell places the icon as if a multi-line title were one long line,
+    /// which pushes the icon against the key's edge. Center the icon and the
+    /// title's widest line together instead.
+    override func imageRect(forBounds rect: NSRect) -> NSRect {
+        guard let image = image, attributedTitle.string.contains("\n") else {
+            return super.imageRect(forBounds: rect)
+        }
+        let textWidth = ceil(CustomHeightButton.measure(attributedTitle).width)
+        let group = image.size.width + CustomButtonCell.multilineImageGap + textWidth
+        return NSRect(x: rect.midX - group / 2, y: rect.midY - image.size.height / 2,
+                      width: image.size.width, height: image.size.height)
     }
 
     required init(coder _: NSCoder) {
@@ -696,21 +719,40 @@ class LongPressGestureRecognizer: NSPressGestureRecognizer {
     /// How touches buzz; the item sets it from its style.
     var haptic = HapticStyle()
     private var timer: Timer?
-    
+    /// Where the touch landed, to tell a hold from a swipe.
+    private var start: NSPoint?
+    /// Farther than this and the touch is a swipe, not a hold.
+    private static let slop: CGFloat = 6
+
     override func touchesBegan(with event: NSEvent) {
         timerInvalidate()
-        
+
         let touches = event.touches(for: self.view!)
         if touches.count == 1 { // to prevent it for built-in two/three-finger gestures
             timer = Timer.scheduledTimer(timeInterval: recognizeTimeout, target: self, selector: #selector(self.onTimer), userInfo: nil, repeats: false)
         }
-        
+        start = touches.first.map { $0.location(in: view) }
+
         super.touchesBegan(with: event)
     }
-    
+
     override func touchesMoved(with event: NSEvent) {
         timerInvalidate() // to prevent it for built-in two/three-finger gestures
+        // A swipe: let go of the touch, so the bar's scrolling middle can take it.
+        // Held, the bar can't scroll while the swipe is over an item with a hold action.
+        if let start = start, let touch = event.touches(for: view!).first {
+            let now = touch.location(in: view)
+            if abs(now.x - start.x) > LongPressGestureRecognizer.slop || abs(now.y - start.y) > LongPressGestureRecognizer.slop {
+                state = .failed
+                return
+            }
+        }
         super.touchesMoved(with: event)
+    }
+
+    override func reset() {
+        start = nil
+        super.reset()
     }
     
     override func touchesCancelled(with event: NSEvent) {

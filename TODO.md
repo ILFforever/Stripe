@@ -18,4 +18,4 @@ Picked for being quicker to reach on the bar than through a menu or window.
 ## Features
 
 - [ ] **Linked styles**: named styles applied to items by reference; editing the style updates every item using it, and an item's own settings still win.
-- [ ] **Widget redesign**: pick which Stripe-look designs to build from the mockups (https://claude.ai/artifact/GHn4oY8KdewWSdi5dnLKzP).
+- [x] **Widget redesign**: the Stripe-look designs from the mockups (https://claude.ai/artifact/GHn4oY8KdewWSdi5dnLKzP) are built, plus designs for the Pomodoro and Now Playing.

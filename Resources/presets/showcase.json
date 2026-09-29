@@ -1,0 +1,185 @@
+{
+  "stripe": 1,
+  "bar": {
+    "glassKeys": false
+  },
+  "items": [
+    {
+      "type": "escape",
+      "align": "left"
+    },
+    {
+      "type": "cpu",
+      "refreshInterval": 3
+    },
+    {
+      "type": "network",
+      "flip": true
+    },
+    {
+      "type": "music"
+    },
+    {
+      "type": "group",
+      "title": "Status",
+      "symbol": "gauge.with.dots.needle.33percent",
+      "items": [
+        {
+          "type": "currency",
+          "from": "BTC",
+          "to": "USD"
+        },
+        {
+          "type": "upnext",
+          "maxToShow": 1
+        },
+        {
+          "type": "pomodoro",
+          "design": "icon"
+        },
+        {
+          "type": "pomodoro",
+          "design": "ready"
+        },
+        {
+          "type": "pomodoro",
+          "design": "stacked"
+        },
+        {
+          "type": "pomodoro",
+          "design": "pill"
+        },
+        {
+          "type": "performance"
+        }
+      ]
+    },
+    {
+      "type": "group",
+      "title": "System",
+      "symbol": "switch.2",
+      "items": [
+        {
+          "type": "dnd"
+        },
+        {
+          "type": "nightShift"
+        },
+        {
+          "type": "darkMode"
+        },
+        {
+          "type": "inputsource"
+        },
+        {
+          "type": "sleep"
+        },
+        {
+          "type": "displaySleep"
+        },
+        {
+          "type": "brightness",
+          "width": 240
+        }
+      ]
+    },
+    {
+      "type": "group",
+      "title": "Keys",
+      "items": [
+        {
+          "type": "delete"
+        },
+        {
+          "type": "cluster",
+          "cornerRadius": 8,
+          "dividers": true,
+          "itemWidth": 44,
+          "items": [
+            {
+              "type": "brightnessDown"
+            },
+            {
+              "type": "brightnessUp"
+            }
+          ]
+        },
+        {
+          "type": "cluster",
+          "cornerRadius": 8,
+          "dividers": true,
+          "itemWidth": 44,
+          "items": [
+            {
+              "type": "illuminationDown"
+            },
+            {
+              "type": "illuminationUp"
+            }
+          ]
+        },
+        {
+          "type": "staticButton",
+          "title": "Deploy"
+        },
+        {
+          "type": "appleScriptTitledButton",
+          "source": {
+            "inline": "return \"Hello\""
+          },
+          "refreshInterval": 30,
+          "bordered": true
+        }
+      ]
+    },
+    {
+      "type": "dock",
+      "autoResize": true
+    },
+    {
+      "type": "cluster",
+      "cornerRadius": 8,
+      "dividers": true,
+      "itemWidth": 40,
+      "items": [
+        {
+          "type": "previous"
+        },
+        {
+          "type": "play"
+        },
+        {
+          "type": "next"
+        }
+      ],
+      "align": "right"
+    },
+    {
+      "type": "popover",
+      "align": "right",
+      "width": 44,
+      "symbol": "speaker.wave.2.fill",
+      "liveIcon": true,
+      "pressAndHold": true,
+      "items": [
+        {
+          "type": "volume",
+          "width": 260
+        },
+        {
+          "type": "mute",
+          "width": 44
+        }
+      ]
+    },
+    {
+      "type": "battery",
+      "align": "right"
+    },
+    {
+      "type": "timeButton",
+      "align": "right",
+      "formatTemplate": "HH:mm"
+    }
+  ]
+}

@@ -135,15 +135,24 @@ enum StripeKeys {
                 button.isBordered = false
             }
         }
+        // A folder shows its icon beside its name.
+        if type == "group", Theme.current.stripeWidgets, style.symbol == nil, definition.additionalParameters[.image] == nil {
+            style.symbol = "folder.fill"
+        }
         if let symbol = symbols[type], style.symbol == nil {
             style.symbol = symbol
             if ["delete", "sleep", "displaySleep"].contains(type), definition.additionalParameters[.title] == nil { button.title = "" }
         }
-        if type == "escape" || pillTypes.contains(type) {
+        if type == "escape" || type == "group" || pillTypes.contains(type) {
             style.fontWeight = style.fontWeight ?? .medium
         }
         if pillTypes.contains(type), style.cornerRadius == nil {
             style.cornerRadius = pillRadius
+        }
+        // The Pomodoro's Start pill: a dark red pill.
+        if case .pomodoro(_, _, design: .pill) = definition.type {
+            if style.cornerRadius == nil { style.cornerRadius = pillRadius }
+            if definition.additionalParameters[.background] == nil { button.backgroundColor = PomodoroBarItem.pillColor }
         }
         // Drawn by Stripe at the standard key's rounding: the system's key has a
         // minimum width and doesn't center a narrower picture in it.

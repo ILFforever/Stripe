@@ -7,7 +7,10 @@
 
 import SwiftUI
 
-/// Owns the editor window. Closing it just hides it; the app keeps running.
+/// Owns the editor window. Closing it just hides it; the app keeps running. Stripe is
+/// an agent app with no Dock icon, so while this window is open it becomes a regular
+/// app (a Dock icon to find and come back to it, and a menu bar), and is an agent
+/// again once it's closed.
 final class SettingsWindowController: NSObject, NSWindowDelegate {
     static let shared = SettingsWindowController()
 
@@ -60,8 +63,14 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             document.load() // pick up edits made elsewhere while the window was closed
         }
         snapshots.start()
+        NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+        if window?.isMiniaturized == true { window?.deminiaturize(nil) }
         window?.makeKeyAndOrderFront(nil)
+    }
+
+    func close() {
+        window?.performClose(nil)
     }
 
     /// The pointer in SwiftUI's global coordinates for this window (content view,
@@ -75,5 +84,6 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     func windowWillClose(_: Notification) {
         document.flushSave()
         snapshots.stop()
+        NSApp.setActivationPolicy(.accessory)
     }
 }

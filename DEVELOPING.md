@@ -77,10 +77,12 @@ object is a command:
 | Command | Does |
 |---|---|
 | `popover` | Expand the first popover |
-| `group` | Open the first group |
+| `group` | Open the first group (`group TITLE`: the folder titled TITLE) |
+| `preset PATH` | Show the preset at PATH, leaving `items.json` alone |
 | `dismiss` | Return to the main bar |
 | `tap NAME` | Tap the first item whose identifier contains NAME (e.g. `tap battery`) |
-| `settings` | Open the Settings window |
+| `double NAME`, `hold NAME` | Run the first matching item's double tap or long tap actions |
+| `settings`, `settings close` | Open or close the Settings window (Stripe has a Dock icon while it's open) |
 | `select N` | Select the Nth top-level item in Settings (`select N.M`: the Mth item inside it) |
 | `pane NAME` | Show the Settings sidebar's `library` or `outline` |
 | `search TEXT` | Type TEXT into the Settings sidebar's search |
@@ -89,6 +91,9 @@ object is a command:
 | `battery` | Open the battery panel (`battery left`: back chevron on the left) |
 | `add TYPE` | Add an item to the end of the center, like a library double-click (`add saved:<id>` for My Items) |
 | `tab NAME` | Show an inspector tab: `item`, `style`, `behavior` or `advanced` |
+
+`STRIPE_SUPPORT_DIR=/some/folder` (with `STRIPE_DEBUG=1`) makes a run read and write its preset and
+history there instead of in Application Support, so testing Settings can't touch your own preset.
 
 A one-line sender:
 

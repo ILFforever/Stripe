@@ -3,13 +3,14 @@
 //  Stripe
 //
 //  Whether media is playing anywhere on the Mac (Music, Spotify, a browser…),
-//  and what: the track's title and artist, and the app playing it.
+//  and what: the track's title, artist and artwork, the app playing it, and
+//  how far in it is.
 //  macOS only tells Apple-signed processes, so the question is asked by
 //  NowPlayingHelper.dylib running inside /usr/bin/perl; see NowPlayingHelper.m.
 //  Started on first use and kept running; the helper exits when Stripe does.
 //
 
-import Foundation
+import AppKit
 
 final class NowPlaying {
     static let shared = NowPlaying()
@@ -22,6 +23,22 @@ final class NowPlaying {
     private(set) var title = ""
     private(set) var artist = ""
     private(set) var appPID: pid_t = 0
+    /// The track's artwork, if the app gives one.
+    private(set) var artwork: NSImage?
+    /// The track's length in seconds (0 if unknown).
+    private(set) var duration: TimeInterval = 0
+    /// Where playback was at `positionDate`, and how fast it moves from there.
+    private var position: TimeInterval?
+    private var positionDate = Date()
+    private var rate: Double = 0
+    private var artworkPath = ""
+
+    /// How far into the track playback is now, if known.
+    var elapsed: TimeInterval? {
+        guard let position = position else { return nil }
+        let now = position + (isPlaying == true ? Date().timeIntervalSince(positionDate) * (rate > 0 ? rate : 1) : 0)
+        return duration > 0 ? min(max(now, 0), duration) : max(now, 0)
+    }
 
     private var process: Process?
     private var restarts = 0
@@ -77,6 +94,17 @@ final class NowPlaying {
                 title = info["title"] as? String ?? ""
                 artist = info["artist"] as? String ?? ""
                 appPID = pid_t((info["pid"] as? NSNumber)?.int32Value ?? 0)
+                let path = info["artwork"] as? String ?? ""
+                if path != artworkPath {
+                    artworkPath = path
+                    artwork = path.isEmpty ? nil : NSImage(contentsOfFile: path)
+                }
+                duration = (info["duration"] as? NSNumber)?.doubleValue ?? 0
+                let elapsed = (info["elapsed"] as? NSNumber)?.doubleValue ?? -1
+                position = elapsed >= 0 ? elapsed : nil
+                let timestamp = (info["timestamp"] as? NSNumber)?.doubleValue ?? 0
+                positionDate = timestamp > 0 ? Date(timeIntervalSince1970: timestamp) : Date()
+                rate = (info["rate"] as? NSNumber)?.doubleValue ?? 0
                 NotificationCenter.default.post(name: NowPlaying.didChange, object: self)
             }
         }

@@ -17,7 +17,7 @@ MTMR proved the Touch Bar could be yours: any button, any script, any layout, in
 
 ## One app, any bar
 
-![Five bars: Aurora (gradient, glass keys), Grid (grid pattern, blue-tinted glass, keys in groups), Dusk (gradient, rose-tinted glass), Lagoon (honeycomb pattern, teal-tinted glass, now playing) and Carbon (carbon pattern, standard keys, graph readouts)](Resources/screenshots/bars.png)
+![Five bars: Aurora (gradient, glass keys), Grid (grid pattern, blue-tinted glass, keys in groups), Dusk (gradient, rose-tinted glass), Lagoon (honeycomb pattern, teal-tinted glass, now playing) and Carbon (carbon pattern, standard keys, a quiet dashboard)](Resources/screenshots/bars.png)
 
 Every bar above is a single preset file in [`Resources/presets`](Resources/presets). To try one, copy it over your preset (back yours up first):
 
@@ -214,7 +214,7 @@ Press and hold the battery item to open its page across the bar (`"holdOpens": "
 - music (tap for pause, longTap for next)
 - dock (half-long click to open app, full-long click to kill app)
 - nightShift
-- dnd (Don't disturb)
+- dnd (Do Not Disturb; runs a shortcut named "Stripe Do Not Disturb" that you make once in Shortcuts: Set Focus › Do Not Disturb › Toggle)
 - darkMode
 - pomodoro
 - network

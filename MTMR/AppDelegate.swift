@@ -35,6 +35,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationWillTerminate(_: Notification) {}
 
+    /// Clicking the Dock icon (there's one while Settings is open, even minimized) brings it forward.
+    func applicationShouldHandleReopen(_: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag { SettingsWindowController.shared.show() }
+        return true
+    }
+
     @objc func updateIsBlockedApp() {
         if let frontmostAppId = TouchBarController.shared.frontmostApplicationIdentifier {
             isBlockedApp = AppSettings.blacklistedAppIds.firstIndex(of: frontmostAppId) != nil
