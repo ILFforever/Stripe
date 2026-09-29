@@ -141,7 +141,10 @@ extension NSView {
 /// background, size and strength.
 final class FrostCache {
     private var images: [GlassStyle: NSImage] = [:]
-    private static let context = CIContext()
+    // Rendered on the CPU without cached intermediates: the blur runs once per
+    // background, and a default (GPU) context kept ~55 MB of GPU buffers alive
+    // afterwards for the life of the app.
+    private static let context = CIContext(options: [.useSoftwareRenderer: true, .cacheIntermediates: false])
     /// The background at one pixel per 4 points, for how bright it is behind a key.
     private var brightness: (width: Int, height: Int, values: [CGFloat])?
     private var brightnessChecked = false
@@ -245,6 +248,8 @@ final class FrostCache {
             .applyingGaussianBlur(sigma: Double(radius * 2)) // at 2x
             .applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 1.12])
             .cropped(to: input.extent)
-        return context.createCGImage(blurred, from: input.extent)
+        let result = context.createCGImage(blurred, from: input.extent)
+        context.clearCaches()
+        return result
     }
 }
