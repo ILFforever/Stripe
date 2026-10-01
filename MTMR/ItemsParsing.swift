@@ -89,6 +89,10 @@ typealias ParametersDecoder = (Decoder) throws -> (
     parameters: [GeneralParameters.CodingKeys: GeneralParameter]
 )
 
+private enum ScreenshotKeys: String, CodingKey {
+    case nativeBar
+}
+
 class SupportedTypesHolder {
     private var supportedTypes: [String: ParametersDecoder] = [
         "escape": { _ in (
@@ -236,8 +240,13 @@ class SupportedTypesHolder {
         },
 
         // Tap opens macOS's Screenshot toolbar (as ⇧⌘5); hold selects an area
-        // straight to the clipboard (as ⇧⌃⌘4).
-        "screenshot": { _ in
+        // straight to the clipboard (as ⇧⌃⌘4). With "nativeBar" (default on),
+        // Stripe steps aside while the toolbar is open so macOS's own screenshot
+        // controls show on the Touch Bar (ScreenshotWatcher).
+        "screenshot": { decoder in
+            let nativeBar = (try? decoder.container(keyedBy: ScreenshotKeys.self)
+                .decodeIfPresent(Bool.self, forKey: .nativeBar)) ?? true
+            if nativeBar { ScreenshotWatcher.shared.wantedByPreset = true }
             let symbol = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "Screenshot")?
                 .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 16, weight: .regular))
             symbol?.isTemplate = true
@@ -245,6 +254,7 @@ class SupportedTypesHolder {
                 item: .staticButton(title: ""),
                 actions: [
                     Action(trigger: .singleTap, value: .shellScript(executable: "/usr/bin/open", parameters: ["-a", "Screenshot"])),
+                    Action(trigger: .singleTap, value: .custom(closure: { ScreenshotWatcher.shared.checkSoon() })),
                     Action(trigger: .longTap, value: .shellScript(executable: "/usr/sbin/screencapture", parameters: ["-i", "-c"])),
                 ],
                 legacyAction: .none,

@@ -294,7 +294,9 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
             loadPreset(path: desiredPreset) // calls back into updateActiveApp
             return
         }
-        if frontmostApplicationIdentifier != nil && blacklistAppIdentifiers.firstIndex(of: frontmostApplicationIdentifier!) != nil {
+        if ScreenshotWatcher.shared.isOpen {
+            dismissTouchBar() // let macOS's own screenshot controls show
+        } else if frontmostApplicationIdentifier != nil && blacklistAppIdentifiers.firstIndex(of: frontmostApplicationIdentifier!) != nil {
             dismissTouchBar()
         } else {
             prepareTouchBar()
@@ -344,7 +346,9 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
     private func loadPreset(path: String) {
         currentPresetPath = path
         let data = path.fileData
+        ScreenshotWatcher.shared.wantedByPreset = false // set again by any Screenshot key that wants it
         let items = data?.barItemDefinitions() ?? [BarItemDefinition(type: .staticButton(title: "bad preset"), actions: [], action: .none, legacyLongAction: .none, additionalParameters: [:])]
+        ScreenshotWatcher.shared.enabled = ScreenshotWatcher.shared.wantedByPreset
         let settings = data?.presetDocument()?.bar ?? BarSettings()
         // Glass is part of how each key is built, so switching it rebuilds them all.
         let rebuild = settings.glassKeys != CustomButtonTouchBarItem.glass || settings.glassStyle != CustomButtonTouchBarItem.glassStyle
