@@ -131,16 +131,29 @@ final class BatteryHistory {
     /// every minute.
     private func backfillFromPowerLog() {
         let before = samples.first?.time ?? Date().timeIntervalSince1970
+        // Nothing to fill in once our own history reaches back the full window.
+        guard before > Date().timeIntervalSince1970 - BatteryHistory.keep + 3600 else { return }
         DispatchQueue.global(qos: .utility).async {
-            let task = Process()
-            task.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
-            task.arguments = ["-g", "log"]
-            let pipe = Pipe()
-            task.standardOutput = pipe
-            task.standardError = FileHandle.nullDevice
-            guard (try? task.run()) != nil else { return }
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            task.waitUntilExit()
+            // The full log is tens of MB (about 28 MB / 127k lines here), of which
+            // only the "Charge:" lines (about 1k) matter. Filtering with grep keeps
+            // Stripe from holding the whole log in memory, which spiked it by ~65 MB
+            // at launch.
+            let pmset = Process()
+            pmset.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
+            pmset.arguments = ["-g", "log"]
+            pmset.standardError = FileHandle.nullDevice
+            let grep = Process()
+            grep.executableURL = URL(fileURLWithPath: "/usr/bin/grep")
+            grep.arguments = ["Charge:"]
+            let between = Pipe(), out = Pipe()
+            pmset.standardOutput = between
+            grep.standardInput = between
+            grep.standardOutput = out
+            grep.standardError = FileHandle.nullDevice
+            guard (try? grep.run()) != nil, (try? pmset.run()) != nil else { return }
+            let data = out.fileHandleForReading.readDataToEndOfFile()
+            pmset.waitUntilExit()
+            grep.waitUntilExit()
             guard let text = String(data: data, encoding: .utf8) else { return }
 
             let formatter = DateFormatter()
