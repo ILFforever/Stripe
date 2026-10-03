@@ -342,6 +342,7 @@ enum ItemType: Decodable {
     case group(items: [BarItemDefinition])
     case popover(items: [BarItemDefinition], pressAndHold: Bool, autoClose: Double?, liveIcon: Bool)
     case cluster(items: [BarItemDefinition], options: ClusterOptions)
+    case cards(cards: [[BarItemDefinition]], dots: Bool)
     case nightShift
     case dnd
     case pomodoro(workTime: Double, restTime: Double, design: PomodoroBarItem.Design)
@@ -368,6 +369,7 @@ enum ItemType: Decodable {
         case url
         case longUrl
         case items
+        case cards, dots
         case workTime
         case restTime
         case flip
@@ -411,6 +413,7 @@ enum ItemType: Decodable {
         case group
         case popover
         case cluster
+        case cards
         case nightShift
         case dnd
         case pomodoro
@@ -548,6 +551,11 @@ enum ItemType: Decodable {
             options.itemWidth = try container.decodeIfPresent(CGFloat.self, forKey: .itemWidth)
             options.padding = try container.decodeIfPresent(CGFloat.self, forKey: .padding)
             self = .cluster(items: items, options: options)
+
+        case .cards:
+            let cards = try container.decodeIfPresent([[BarItemDefinition]].self, forKey: .cards) ?? []
+            let dots = try container.decodeIfPresent(Bool.self, forKey: .dots) ?? true
+            self = .cards(cards: cards, dots: dots)
 
         case .nightShift:
             self = .nightShift

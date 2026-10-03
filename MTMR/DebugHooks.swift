@@ -39,6 +39,8 @@ enum DebugHooks {
             (items.first { $0 is PopoverBarItem } as? PopoverBarItem)?.expand()
         case "group":
             (items.first { $0 is GroupBarItem } as? GroupBarItem)?.open()
+        case "cards next", "cards prev":
+            (items.first { $0 is CardsBarItem } as? CardsBarItem)?.advance(command == "cards next" ? 1 : -1)
         case "settings":
             SettingsWindowController.shared.show()
         case "settings close":

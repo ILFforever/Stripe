@@ -71,6 +71,8 @@ extension ItemType {
             return "com.ilfforever.stripe.popover."
         case .cluster:
             return "com.ilfforever.stripe.cluster."
+        case .cards:
+            return "com.ilfforever.stripe.cards."
         case .nightShift:
             return "com.toxblh.mtmr.nightShift."
         case .dnd:
@@ -224,6 +226,9 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
         // Items inside a cluster show and hide in place, without a rebuild.
         for case let cluster as ClusterBarItem in items.values {
             cluster.updateVisibility()
+        }
+        for case let cards as CardsBarItem in items.values {
+            cards.updateVisibility()
         }
         updateActiveStates(items.values)
         if visible == visibleIdentifiers {
@@ -633,6 +638,8 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
                                      align: item.align, liveIcon: liveIcon)
         case let .cluster(items: items, options: options):
             barItem = ClusterBarItem(identifier: identifier, items: items, options: options, definition: item, bar: self)
+        case let .cards(cards: cards, dots: dots):
+            barItem = CardsBarItem(identifier: identifier, cards: cards, dots: dots, bar: self)
         case .nightShift:
             barItem = NightShiftBarItem(identifier: identifier)
         case .dnd:
