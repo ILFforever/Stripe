@@ -450,6 +450,8 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
         switch definition.type {
         case let .group(items), let .popover(items, _, _, _):
             if items.isEmpty { return false }
+        case let .cards(cards, _):
+            if cards.allSatisfy({ $0.isEmpty }) { return false }
         default: break
         }
         guard case let .when(condition)? = definition.additionalParameters[.when] else { return true }

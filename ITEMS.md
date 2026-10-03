@@ -31,6 +31,7 @@ below apply.
 | **Slider** | `volume`, `brightness` | A draggable level, with icons at the ends. |
 | **Folder** | `group` | A key that opens its `items` as a sub-bar; a `close` item inside returns. |
 | **Group** | `cluster` | Several items side by side on one shared background, always on the bar. |
+| **Cards** | `cards` | A slot of `cards` (each a row of items) on one shared background; swiping slides to the next card, wrapping round. |
 | **Strip** | `dock`, `upnext` | A scrolling row (apps, calendar events). Not a button. |
 | **Gesture** | `swipe` | Not drawn; runs a command on a multi-finger swipe. |
 
@@ -68,22 +69,22 @@ shows; `activeWhen` whether it's on.
 
 ✓ applies · — doesn't apply (ignored if set)
 
-| Attribute group | Button | Toggle | Popover | Slider | Folder | Group | Strip | Gesture |
-|---|---|---|---|---|---|---|---|---|
-| Position and size | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
-| Visibility (`when`) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Label (`title`, icon) | ✓ | ✓ | ✓ | knob only | ✓ | — | — | — |
-| Key look | ✓ | ✓ | ✓ | — | — | ✓ (background and shape) | — | — |
-| Text styling | ✓ | ✓ | ✓ | — | — | — | — | — |
-| Pressed color | ✓ | ✓ | ✓ | — | — | — | — | — |
-| On state | with `activeWhen` | ✓ | with `activeWhen` | — | — | — | — | — |
-| Haptics (press/release) | ✓ | ✓ | ✓ | — | — | per item inside | — | — |
-| Haptics (on/off feel) | with `activeWhen` | ✓ | with `activeWhen` | — | — | per item inside | — | — |
-| Haptics (detents) | — | — | — | ✓ | — | — | — | — |
-| Actions | ✓ (see below) | ✓ (see below) | — | — | — | — | — | — |
-| Contents (`items`) | — | — | ✓ | — | ✓ | ✓ | — | — |
+| Attribute group | Button | Toggle | Popover | Slider | Folder | Group | Cards | Strip | Gesture |
+|---|---|---|---|---|---|---|---|---|---|
+| Position and size | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
+| Visibility (`when`) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Label (`title`, icon) | ✓ | ✓ | ✓ | knob only | ✓ | — | — | — | — |
+| Key look | ✓ | ✓ | ✓ | — | — | ✓ (background and shape) | ✓ (background and shape) | — | — |
+| Text styling | ✓ | ✓ | ✓ | — | — | — | — | — | — |
+| Pressed color | ✓ | ✓ | ✓ | — | — | — | — | — | — |
+| On state | with `activeWhen` | ✓ | with `activeWhen` | — | — | — | — | — | — |
+| Haptics (press/release) | ✓ | ✓ | ✓ | — | — | per item inside | per item inside | — | — |
+| Haptics (on/off feel) | with `activeWhen` | ✓ | with `activeWhen` | — | — | per item inside | per item inside | — | — |
+| Haptics (detents) | — | — | — | ✓ | — | — | — | — | — |
+| Actions | ✓ (see below) | ✓ (see below) | — | — | — | — | — | — | — |
+| Contents (`items`) | — | — | ✓ | — | ✓ | ✓ | `cards`: a list of item lists | — | — |
 
-Items inside a group, folder or popover follow the same rules as on the bar,
+Items inside a group, cards slot, folder or popover follow the same rules as on the bar,
 except position (`align`), which only top-level items have.
 
 ### Position and size
@@ -157,6 +158,8 @@ Each type's own keys (e.g. `refreshInterval`, `formatTemplate`, `showPercentage`
 
 **Now Playing's controls.** `"tapOpens"` sets what a tap on `music` does: nothing extra (plays or pauses, the default), `"side"` (previous, play/pause and next slide out beside the key, and slide back after a few seconds or on another tap) or `"full"` (the controls open across the bar with the track's progress, and a back arrow at the item's end). A double tap and a press and hold are previous and next unless `"doubleTapDoes"` and `"holdDoes"` say otherwise: each is `"previous"`, `"next"`, `"playPause"`, `"side"`, `"full"` or `"nothing"` (a gesture set to nothing has no action, so a single tap doesn't wait for a possible double).
 
+**Cards.** `{ "type": "cards", "cards": [[…], […]], "dots": true }`. Swipe left for the next card, right for the previous; past the last it wraps to the first. `"dots"` (on by default) shows which card is up, along the bottom edge. Without `"width"` the slot is as wide as its widest showing card; with a narrower one, a card starts at the left edge and is cut off on the right. A card whose items are all hidden by `when` is skipped, and the slot hides when none show.
+
 **Pages.** Tapping `cpu`, `gpu` or `performance` opens its page (holding opens Activity Monitor) across the bar (the CPU page, the GPU page, or the unified one), like the battery's overview. `"panelTiles"` picks the tiles (`cpu`, `cores`, `graph`, `load`, `gpu`, `gpuDetail`, `gpuMemory`, `memory`, `apps`) and `"panelCloseSide"` which end the back button is at.
 
 ## Precedence
@@ -169,4 +172,5 @@ Each type's own keys (e.g. `refreshInterval`, `formatTemplate`, `showPercentage`
 ## Known gaps
 - **Fixed-action keys** (e.g. `mute`, `play`) show an Actions section in Settings, but a preset action on them is ignored.
 - **Dock and Up Next** are strips, not buttons, but the inspector still offers button styling for them. It does nothing there.
+- **Cards** can't be edited in Settings yet: they show as a plain item, though saving keeps their cards. Edit them in the preset.
 - **Folders** take a label and icon, but no key look, pressed color or haptics of their own. The items inside have their own.

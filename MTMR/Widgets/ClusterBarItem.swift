@@ -42,40 +42,13 @@ class ClusterBarItem: NSCustomTouchBarItem, TearDownable {
         self.bar = bar
         super.init(identifier: identifier)
 
-        var fill: NSColor? = CustomButtonTouchBarItem.standardKeyColor
-        var glass = CustomButtonTouchBarItem.glass
-        if case let .glass(own)? = definition.additionalParameters[.glass] { glass = own }
-        if case let .background(color)? = definition.additionalParameters[.background] {
-            fill = color
-            glass = false
-        } else if case .bordered(false)? = definition.additionalParameters[.bordered] {
-            fill = nil
-            glass = false
-        }
-        // Glass is drawn by the group itself (ClusterView.draw), frosted like a key.
-        if glass { fill = nil }
-        var tint = CustomButtonTouchBarItem.glassTint
-        if case let .glassTint(own)? = definition.additionalParameters[.glassTint] { tint = own }
-        var radius = ClusterBarItem.standardCornerRadius
-        if case let .style(style)? = definition.additionalParameters[.style], let custom = style.cornerRadius {
-            radius = custom
-        }
+        let (fill, glass, tint, radius) = ClusterBarItem.sharedBackground(for: definition)
 
         for child in definitions {
             let childIdentifier = NSTouchBarItem.Identifier(child.type.identifierBase + UUID().uuidString)
             guard let item = bar.createItem(forIdentifier: childIdentifier, definition: child),
                   !(item is SwipeItem), let view = item.view else { continue }
-            // Items sit on the cluster's background rather than on keys of their own,
-            // unless they were given a background or border explicitly.
-            if let button = item as? CustomButtonTouchBarItem, button.backgroundColor == nil,
-               child.additionalParameters[.bordered] == nil {
-                button.isBordered = false
-                // Full white, as on a key: without a key of its own, the system
-                // dims icons (and ignores a tint), so the icon is colored itself.
-                if button.style.symbol != nil, button.style.iconColor == nil {
-                    button.style.iconColor = .white
-                }
-            }
+            ClusterBarItem.placeOnSharedBackground(item, definition: child)
             if let itemWidth = options.itemWidth {
                 view.widthAnchor.constraint(greaterThanOrEqualToConstant: itemWidth).isActive = true
             }
@@ -92,6 +65,44 @@ class ClusterBarItem: NSCustomTouchBarItem, TearDownable {
 
     required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    /// The background several items share (a cluster's, or a cards slot's): the
+    /// key gray unless the item sets a background, turns the border off, or is glass.
+    /// Glass has no fill; the shared view draws it, frosted like a key.
+    static func sharedBackground(for definition: BarItemDefinition)
+        -> (fill: NSColor?, glass: Bool, tint: NSColor?, radius: CGFloat) {
+        var fill: NSColor? = CustomButtonTouchBarItem.standardKeyColor
+        var glass = CustomButtonTouchBarItem.glass
+        if case let .glass(own)? = definition.additionalParameters[.glass] { glass = own }
+        if case let .background(color)? = definition.additionalParameters[.background] {
+            fill = color
+            glass = false
+        } else if case .bordered(false)? = definition.additionalParameters[.bordered] {
+            fill = nil
+            glass = false
+        }
+        if glass { fill = nil }
+        var tint = CustomButtonTouchBarItem.glassTint
+        if case let .glassTint(own)? = definition.additionalParameters[.glassTint] { tint = own }
+        var radius = standardCornerRadius
+        if case let .style(style)? = definition.additionalParameters[.style], let custom = style.cornerRadius {
+            radius = custom
+        }
+        return (fill, glass, tint, radius)
+    }
+
+    /// Items sit on a shared background rather than on keys of their own, unless
+    /// they were given a background or border explicitly.
+    static func placeOnSharedBackground(_ item: NSTouchBarItem, definition: BarItemDefinition) {
+        guard let button = item as? CustomButtonTouchBarItem, button.backgroundColor == nil,
+              definition.additionalParameters[.bordered] == nil else { return }
+        button.isBordered = false
+        // Full white, as on a key: without a key of its own, the system
+        // dims icons (and ignores a tint), so the icon is colored itself.
+        if button.style.symbol != nil, button.style.iconColor == nil {
+            button.style.iconColor = .white
+        }
     }
 
     /// Shows only the items whose "when" condition holds; the cluster hides when

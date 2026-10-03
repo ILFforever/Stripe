@@ -91,6 +91,7 @@ object is a command:
 | `battery` | Open the battery panel (`battery left`: back chevron on the left) |
 | `add TYPE` | Add an item to the end of the center, like a library double-click (`add saved:<id>` for My Items) |
 | `tab NAME` | Show an inspector tab: `item`, `style`, `behavior` or `advanced` |
+| `cards next`, `cards prev` | Slide the first cards slot to its next or previous card, as a swipe would |
 
 `STRIPE_SUPPORT_DIR=/some/folder` (with `STRIPE_DEBUG=1`) makes a run read and write its preset and
 history there instead of in Application Support, so testing Settings can't touch your own preset.
@@ -121,6 +122,9 @@ Things that cost time to find out:
 - **What's playing comes from MediaRemote, via the perl helper.** Since macOS
   15.4 it only answers Apple-signed processes (see NowPlaying.swift). Don't go
   back to asking apps and browser tabs.
+- **Frame changes through `animator()` don't animate on the Touch Bar.** The bar shows
+  the end state at once. Animate a layer (e.g. an additive `position.x` animation, as
+  the cards' slide does) and set the final frame directly.
 - **Animate with Core Animation, not timers.** The battery's charging sweep is a
   layer animation; redrawing an NSImage 20 times a second was 20% CPU.
 - **The Touch Bar ignores `contentTintColor`.** Tint an icon by drawing a copy

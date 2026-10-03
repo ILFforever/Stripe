@@ -79,4 +79,35 @@ class ParseConfig: XCTestCase {
             return
         }
     }
+
+    func testCards() {
+        let fixture = """
+            [ { "type": "cards", "dots": false, "width": 120,
+                "cards": [ [ { "type": "staticButton", "title": "A" } ], [ { "type": "cpu" }, { "type": "battery" } ] ] } ]
+        """.data(using: .utf8)!
+        let result = try? JSONDecoder().decode([BarItemDefinition].self, from: fixture)
+        guard case let .cards(cards, dots)? = result?.first?.type else {
+            XCTFail()
+            return
+        }
+        XCTAssertEqual(cards.map { $0.count }, [1, 2])
+        XCTAssertFalse(dots)
+        guard case .width(120)? = result?.first?.additionalParameters[.width] else {
+            XCTFail()
+            return
+        }
+    }
+
+    func testCardsDefaults() {
+        let fixture = """
+            [ { "type": "cards" } ]
+        """.data(using: .utf8)!
+        let result = try? JSONDecoder().decode([BarItemDefinition].self, from: fixture)
+        guard case let .cards(cards, dots)? = result?.first?.type else {
+            XCTFail()
+            return
+        }
+        XCTAssertTrue(cards.isEmpty)
+        XCTAssertTrue(dots)
+    }
 }

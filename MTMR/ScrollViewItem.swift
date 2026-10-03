@@ -10,7 +10,8 @@ class ScrollViewItem: NSCustomTouchBarItem/*, NSGestureRecognizerDelegate*/ {
         stackView.orientation = .horizontal
         // Groups keep the edges' 8pt from their neighbors, so two side by side read as two.
         let shown = items.filter { $0.view != nil }
-        for (item, next) in zip(shown, shown.dropFirst()) where item is ClusterBarItem || next is ClusterBarItem {
+        for (item, next) in zip(shown, shown.dropFirst()) where item is ClusterBarItem || next is ClusterBarItem
+            || item is CardsBarItem || next is CardsBarItem {
             stackView.setCustomSpacing(8, after: item.view!)
         }
         let scrollView = NSScrollView(frame: CGRect(origin: .zero, size: stackView.fittingSize))

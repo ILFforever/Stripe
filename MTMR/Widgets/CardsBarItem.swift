@@ -4,62 +4,43 @@
 //
 //  A slot that holds several cards, each a row of items, and swaps between them
 //  with a swipe, like a widget stack: the whole card slides out and the next
-//  slides in. Swiping past the last card wraps to the first.
+//  slides in, on one background the cards share. Swiping past the last card
+//  wraps to the first. Dots along the bottom show which card is up.
 //
 //    { "type": "cards",
 //      "cards": [[{ "type": "previous" }, { "type": "play" }, { "type": "next" }],
 //                [{ "type": "cpu" }, { "type": "battery" }]],
-//      "dots": true, "width": 200 }
+//      "dots": true, "width": 200,
+//      "background": "#444444", "glass": true, "bordered": false }   // as on a group
 //
-//  With no "width" the slot is as wide as its widest card.
+//  With no "width" the slot is as wide as its widest card that's showing.
 //
 
 import Cocoa
 
 class CardsBarItem: NSCustomTouchBarItem, TearDownable {
     private var cards: [[(item: NSTouchBarItem, definition: BarItemDefinition)]] = []
+    /// Passed in rather than read from `TouchBarController.shared`, which isn't
+    /// available yet while the bar loads its first preset during its own init.
     private unowned let bar: TouchBarController
     private let cardsView: CardsView
 
     init(identifier: NSTouchBarItem.Identifier, cards definitions: [[BarItemDefinition]], dots: Bool,
          definition: BarItemDefinition, bar: TouchBarController) {
         self.bar = bar
-        // The slot has one background that every card sits on, set up like a cluster's.
-        var fill: NSColor? = CustomButtonTouchBarItem.standardKeyColor
-        var glass = CustomButtonTouchBarItem.glass
-        if case let .glass(own)? = definition.additionalParameters[.glass] { glass = own }
-        if case let .background(color)? = definition.additionalParameters[.background] {
-            fill = color
-            glass = false
-        } else if case .bordered(false)? = definition.additionalParameters[.bordered] {
-            fill = nil
-            glass = false
-        }
-        if glass { fill = nil }
-        var tint = CustomButtonTouchBarItem.glassTint
-        if case let .glassTint(own)? = definition.additionalParameters[.glassTint] { tint = own }
-        var radius = ClusterBarItem.standardCornerRadius
-        if case let .style(style)? = definition.additionalParameters[.style], let custom = style.cornerRadius { radius = custom }
-        var built: [[(item: NSTouchBarItem, definition: BarItemDefinition)]] = []
+        let (fill, glass, tint, radius) = ClusterBarItem.sharedBackground(for: definition)
         for definitions in definitions {
             var card: [(item: NSTouchBarItem, definition: BarItemDefinition)] = []
             for child in definitions {
                 let childIdentifier = NSTouchBarItem.Identifier(child.type.identifierBase + UUID().uuidString)
                 guard let item = bar.createItem(forIdentifier: childIdentifier, definition: child),
                       !(item is SwipeItem), item.view != nil else { continue }
-                // Items sit on the slot's background rather than on keys of their own,
-                // unless they were given a background or border explicitly.
-                if let button = item as? CustomButtonTouchBarItem, button.backgroundColor == nil,
-                   child.additionalParameters[.bordered] == nil {
-                    button.isBordered = false
-                    if button.style.symbol != nil, button.style.iconColor == nil { button.style.iconColor = .white }
-                }
+                ClusterBarItem.placeOnSharedBackground(item, definition: child)
                 card.append((item, child))
             }
-            built.append(card)
+            cards.append(card)
         }
-        cards = built
-        cardsView = CardsView(cards: built.map { $0.compactMap { $0.item.view } }, dots: dots, fill: fill, glass: glass,
+        cardsView = CardsView(cards: cards.map { $0.compactMap { $0.item.view } }, dots: dots, fill: fill, glass: glass,
                               glassTint: tint, cornerRadius: radius)
         super.init(identifier: identifier)
         view = cardsView
@@ -70,7 +51,8 @@ class CardsBarItem: NSCustomTouchBarItem, TearDownable {
         fatalError("init(coder:) has not been implemented")
     }
 
-    /// Hides items whose "when" condition fails, and skips cards left with none.
+    /// Hides items whose "when" condition fails and skips cards left with none;
+    /// the slot hides when no card has anything to show.
     func updateVisibility() {
         var shown: [Bool] = []
         for card in cards {
@@ -82,6 +64,8 @@ class CardsBarItem: NSCustomTouchBarItem, TearDownable {
             shown.append(card.contains { !($0.item.view?.isHidden ?? true) })
         }
         cardsView.setShown(shown)
+        let empty = !shown.contains(true)
+        if view.isHidden != empty { view.isHidden = empty }
     }
 
     /// Slides to the next (1) or previous (-1) card, as a swipe would.
@@ -93,17 +77,35 @@ class CardsBarItem: NSCustomTouchBarItem, TearDownable {
     }
 }
 
-/// Lays the cards out side by side and slides between them under a pan.
+/// The cards' background, the card that's up, and the slide between cards.
+///
+/// At rest only the current card is on screen. While a finger drags, the card
+/// on the side being uncovered sits next to it. Releasing (or `advance`) animates
+/// exactly two cards: the current one out and the incoming one in, or the
+/// uncovered one back out if the swipe falls short.
 final class CardsView: NSView {
     private let holders: [NSView]
     private var shown: [Bool]
     private(set) var current = 0
+    /// How far the finger has dragged the current card; 0 at rest.
     private var offset: CGFloat = 0
-    private var dragging = false
+    /// Bumped on every slide, so a slide's completion that's been overtaken
+    /// (by a new touch) leaves the state alone.
+    private var generation = 0
+    private var animating = false
+    /// The card a slide in flight is heading for.
+    private var heading = 0
+    /// The widest showing card, as of the last measure.
+    private var measuredWidth: CGFloat = 0
+
     private let glass: Bool
     private let glassTint: NSColor?
     private let cornerRadius: CGFloat
     private let dotsView: DotsView?
+
+    /// Space between the background's edges and the widest card, when the slot sizes itself.
+    private static let padding: CGFloat = 8
+    private static let duration: TimeInterval = 0.22
 
     init(cards: [[NSView]], dots: Bool, fill: NSColor?, glass: Bool, glassTint: NSColor?, cornerRadius: CGFloat) {
         self.glass = glass
@@ -119,11 +121,15 @@ final class CardsView: NSView {
             stack.spacing = 8
             stack.translatesAutoresizingMaskIntoConstraints = false
             holder.addSubview(stack)
+            // Centered when it fits; when the slot is narrower (a set "width"),
+            // it starts at the left edge and the right is cut off.
+            let center = stack.centerXAnchor.constraint(equalTo: holder.centerXAnchor)
+            center.priority = .defaultHigh
             NSLayoutConstraint.activate([
-                stack.centerXAnchor.constraint(equalTo: holder.centerXAnchor),
+                center,
+                stack.leadingAnchor.constraint(greaterThanOrEqualTo: holder.leadingAnchor),
                 stack.topAnchor.constraint(equalTo: holder.topAnchor),
                 stack.bottomAnchor.constraint(equalTo: holder.bottomAnchor),
-                stack.leadingAnchor.constraint(greaterThanOrEqualTo: holder.leadingAnchor),
             ])
             return holder
         }
@@ -133,7 +139,12 @@ final class CardsView: NSView {
         layer?.backgroundColor = fill?.cgColor
         layer?.cornerRadius = cornerRadius
         holders.forEach(addSubview)
-        if let dotsView = dotsView { addSubview(dotsView) }
+        if let dotsView = dotsView {
+            dotsView.autoresizingMask = [.width, .height]
+            addSubview(dotsView)
+        }
+        measuredWidth = widestShowingCard()
+        updateDots()
 
         let pan = NSPanGestureRecognizer(target: self, action: #selector(panned(_:)))
         pan.allowedTouchTypes = .direct
@@ -144,10 +155,26 @@ final class CardsView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    // MARK: Size
+
     override var intrinsicContentSize: NSSize {
-        let widest = holders.compactMap { $0.subviews.first?.fittingSize.width }.max() ?? 0
-        return NSSize(width: widest + 16, height: ItemStyle.barHeight)
+        NSSize(width: measuredWidth + 2 * CardsView.padding, height: ItemStyle.barHeight)
     }
+
+    private func widestShowingCard() -> CGFloat {
+        holders.indices.filter { shown[$0] }.compactMap { holders[$0].subviews.first?.fittingSize.width }.max() ?? 0
+    }
+
+    /// Resizes the slot when the widest showing card changed (an item hidden or
+    /// shown, or a readout's text grew).
+    private func remeasure() {
+        let width = widestShowingCard()
+        guard width != measuredWidth else { return }
+        measuredWidth = width
+        invalidateIntrinsicContentSize()
+    }
+
+    // MARK: Which cards
 
     /// Cards that have something to show, in order.
     private var visibleCards: [Int] { shown.indices.filter { shown[$0] } }
@@ -155,23 +182,13 @@ final class CardsView: NSView {
     func setShown(_ values: [Bool]) {
         guard values.count == shown.count, values != shown else { return }
         shown = values
-        if !shown[current], let first = visibleCards.first { current = first }
+        if !shown[current] {
+            finishSlide()
+            current = visibleCards.first ?? 0
+        }
+        remeasure()
         needsLayout = true
         updateDots()
-    }
-
-    override func layout() {
-        super.layout()
-        place()
-        dotsView?.frame = bounds
-        updateDots()
-    }
-
-    private func updateDots() {
-        guard let dotsView = dotsView else { return }
-        let cards = visibleCards
-        dotsView.count = cards.count
-        dotsView.active = cards.firstIndex(of: current) ?? 0
     }
 
     /// The card next to `current` in the given direction, wrapping around.
@@ -181,74 +198,135 @@ final class CardsView: NSView {
         return cards[(position + step + cards.count) % cards.count]
     }
 
-    private var slotWidth: CGFloat { bounds.width }
+    // MARK: Layout
 
+    override func layout() {
+        super.layout()
+        // A slide in flight owns the holders' frames until it ends.
+        if !animating { place() }
+        if glass { needsDisplay = true }
+        remeasure()
+    }
+
+    /// Puts the current card at the drag offset and, while dragging, the card
+    /// being uncovered beside it; hides the rest.
     private func place() {
-        let width = slotWidth
-        let previous = neighbor(-1), next = neighbor(1)
+        let width = bounds.width
+        let uncovered = offset < 0 ? neighbor(1) : offset > 0 ? neighbor(-1) : nil
         for (index, holder) in holders.enumerated() {
             var x: CGFloat?
-            if index == current { x = offset }
-            else if index == next, offset < 0 || !dragging { x = offset + width }
-            if index == previous, offset > 0 || !dragging, previous != next || offset > 0 { x = offset - width }
-            holder.isHidden = x == nil || !shown[index]
+            if index == current {
+                x = offset
+            } else if index == uncovered {
+                x = offset < 0 ? offset + width : offset - width
+            }
+            holder.isHidden = x == nil
             holder.frame = NSRect(x: x ?? 0, y: 0, width: width, height: bounds.height)
         }
     }
 
+    // MARK: Sliding
+
     @objc private func panned(_ recognizer: NSPanGestureRecognizer) {
         guard visibleCards.count > 1 else { return }
-        let width = max(slotWidth, 1)
+        let width = max(bounds.width, 1)
         switch recognizer.state {
-        case .began, .changed:
-            dragging = true
+        case .began:
+            // A new touch takes over from a slide still in flight.
+            finishSlide()
+            fallthrough
+        case .changed:
             offset = max(-width, min(width, recognizer.translation(in: self).x))
             place()
-        case .ended, .cancelled:
-            let velocity = recognizer.velocity(in: self).x
-            var step = 0
-            if offset < -width / 4 || velocity < -400 { step = 1 }
-            if offset > width / 4 || velocity > 400 { step = -1 }
-            if recognizer.state == .cancelled { step = 0 }
-            settle(step: step)
+        case .ended:
+            // Where the card would come to rest if it kept going a moment: a quick
+            // flick counts as much as a long drag, and the two can't disagree.
+            let projected = offset + recognizer.velocity(in: self).x * 0.15
+            slide(step: projected < -width / 3 ? 1 : projected > width / 3 ? -1 : 0)
+        case .cancelled, .failed:
+            slide(step: 0)
         default: break
         }
     }
 
     func advance(_ step: Int) {
-        guard visibleCards.count > 1, !dragging else { return }
-        dragging = true
-        offset = 0
-        place()
-        settle(step: step)
+        guard visibleCards.count > 1 else { return }
+        finishSlide()
+        slide(step: step)
     }
 
-    /// Animates to the next card (step 1), the previous (-1), or back (0).
-    private func settle(step: Int) {
-        let width = slotWidth
+    /// Animates to the next card (step 1), the previous (-1), or back to rest (0).
+    ///
+    /// The holders' frames jump to where they end up, and a Core Animation
+    /// animation carries each from where it was: the Touch Bar shows layer
+    /// animations, but not an `animator()` frame change.
+    private func slide(step: Int) {
+        let width = bounds.width
         let incoming = step == 0 ? current : neighbor(step)
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.22
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            for (index, holder) in holders.enumerated() where !holder.isHidden {
-                var frame = holder.frame
-                if index == current {
-                    frame.origin.x = CGFloat(-step) * width
-                } else if index == incoming {
-                    frame.origin.x = 0
-                } else {
-                    frame.origin.x = frame.origin.x > 0 ? width : -width
-                }
-                holder.animator().frame = frame
+        var moves: [(holder: NSView, from: CGFloat, to: CGFloat)] = []
+        for (index, holder) in holders.enumerated() {
+            if index == incoming, step != 0 {
+                // It comes in from beside the current card, on the side it enters from,
+                // wherever the drag left things.
+                moves.append((holder, offset + CGFloat(step) * width, 0))
+            } else if index == current {
+                moves.append((holder, offset, CGFloat(-step) * width))
+            } else if !holder.isHidden {
+                // Falling short: the uncovered card goes back the way it came.
+                moves.append((holder, holder.frame.origin.x, holder.frame.origin.x < 0 ? -width : width))
+            } else {
+                continue
             }
-        }, completionHandler: { [weak self] in
-            guard let self = self else { return }
+        }
+        generation += 1
+        let slide = generation
+        animating = true
+        heading = incoming
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        CATransaction.setCompletionBlock { [weak self] in
+            guard let self = self, self.generation == slide else { return }
             self.current = incoming
-            self.offset = 0
-            self.dragging = false
-            self.place()
-            self.updateDots()
-        })
+            self.endSlide()
+        }
+        for move in moves {
+            move.holder.isHidden = false
+            move.holder.frame = NSRect(x: move.to, y: 0, width: width, height: bounds.height)
+            let animation = CABasicAnimation(keyPath: "position.x")
+            animation.isAdditive = true
+            animation.fromValue = move.from - move.to
+            animation.toValue = 0
+            animation.duration = CardsView.duration
+            animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            move.holder.layer?.add(animation, forKey: "slide")
+        }
+        CATransaction.commit()
+        // The dot moves as the card starts to move.
+        if let position = visibleCards.firstIndex(of: incoming) { dotsView?.active = position }
+    }
+
+    /// Ends a slide still in flight at once, landing on the card it was heading
+    /// for, so a new touch or a change in which cards show starts from rest.
+    private func finishSlide() {
+        guard animating else { return }
+        generation += 1
+        current = heading
+        for holder in holders { holder.layer?.removeAnimation(forKey: "slide") }
+        endSlide()
+    }
+
+    private func endSlide() {
+        animating = false
+        offset = 0
+        place()
+        updateDots()
+    }
+
+    private func updateDots() {
+        guard let dotsView = dotsView else { return }
+        let cards = visibleCards
+        dotsView.count = cards.count
+        dotsView.active = cards.firstIndex(of: current) ?? 0
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -261,10 +339,10 @@ final class CardsView: NSView {
 }
 
 /// Small dots along the bottom edge, in the order of the swipe: swiping left to the
-/// next card moves the bright dot right. Taps pass through to the keys beneath.
+/// next card moves the bright dot right. Touches pass through to the keys beneath.
 final class DotsView: NSView {
-    var count = 0 { didSet { needsDisplay = true } }
-    var active = 0 { didSet { needsDisplay = true } }
+    var count = 0 { didSet { if count != oldValue { needsDisplay = true } } }
+    var active = 0 { didSet { if active != oldValue { needsDisplay = true } } }
 
     override func hitTest(_: NSPoint) -> NSView? { nil }
 
