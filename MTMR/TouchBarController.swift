@@ -639,7 +639,7 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
         case let .cluster(items: items, options: options):
             barItem = ClusterBarItem(identifier: identifier, items: items, options: options, definition: item, bar: self)
         case let .cards(cards: cards, dots: dots):
-            barItem = CardsBarItem(identifier: identifier, cards: cards, dots: dots, bar: self)
+            barItem = CardsBarItem(identifier: identifier, cards: cards, dots: dots, definition: item, bar: self)
         case .nightShift:
             barItem = NightShiftBarItem(identifier: identifier)
         case .dnd:

@@ -21,8 +21,25 @@ class CardsBarItem: NSCustomTouchBarItem, TearDownable {
     private unowned let bar: TouchBarController
     private let cardsView: CardsView
 
-    init(identifier: NSTouchBarItem.Identifier, cards definitions: [[BarItemDefinition]], dots: Bool, bar: TouchBarController) {
+    init(identifier: NSTouchBarItem.Identifier, cards definitions: [[BarItemDefinition]], dots: Bool,
+         definition: BarItemDefinition, bar: TouchBarController) {
         self.bar = bar
+        // The slot has one background that every card sits on, set up like a cluster's.
+        var fill: NSColor? = CustomButtonTouchBarItem.standardKeyColor
+        var glass = CustomButtonTouchBarItem.glass
+        if case let .glass(own)? = definition.additionalParameters[.glass] { glass = own }
+        if case let .background(color)? = definition.additionalParameters[.background] {
+            fill = color
+            glass = false
+        } else if case .bordered(false)? = definition.additionalParameters[.bordered] {
+            fill = nil
+            glass = false
+        }
+        if glass { fill = nil }
+        var tint = CustomButtonTouchBarItem.glassTint
+        if case let .glassTint(own)? = definition.additionalParameters[.glassTint] { tint = own }
+        var radius = ClusterBarItem.standardCornerRadius
+        if case let .style(style)? = definition.additionalParameters[.style], let custom = style.cornerRadius { radius = custom }
         var built: [[(item: NSTouchBarItem, definition: BarItemDefinition)]] = []
         for definitions in definitions {
             var card: [(item: NSTouchBarItem, definition: BarItemDefinition)] = []
@@ -30,12 +47,20 @@ class CardsBarItem: NSCustomTouchBarItem, TearDownable {
                 let childIdentifier = NSTouchBarItem.Identifier(child.type.identifierBase + UUID().uuidString)
                 guard let item = bar.createItem(forIdentifier: childIdentifier, definition: child),
                       !(item is SwipeItem), item.view != nil else { continue }
+                // Items sit on the slot's background rather than on keys of their own,
+                // unless they were given a background or border explicitly.
+                if let button = item as? CustomButtonTouchBarItem, button.backgroundColor == nil,
+                   child.additionalParameters[.bordered] == nil {
+                    button.isBordered = false
+                    if button.style.symbol != nil, button.style.iconColor == nil { button.style.iconColor = .white }
+                }
                 card.append((item, child))
             }
             built.append(card)
         }
         cards = built
-        cardsView = CardsView(cards: built.map { $0.compactMap { $0.item.view } }, dots: dots)
+        cardsView = CardsView(cards: built.map { $0.compactMap { $0.item.view } }, dots: dots, fill: fill, glass: glass,
+                              glassTint: tint, cornerRadius: radius)
         super.init(identifier: identifier)
         view = cardsView
         updateVisibility()
@@ -75,11 +100,16 @@ final class CardsView: NSView {
     private(set) var current = 0
     private var offset: CGFloat = 0
     private var dragging = false
-    private let showsDots: Bool
-    private static let dotColumn: CGFloat = 10
+    private let glass: Bool
+    private let glassTint: NSColor?
+    private let cornerRadius: CGFloat
+    private let dotsView: DotsView?
 
-    init(cards: [[NSView]], dots: Bool) {
-        showsDots = dots
+    init(cards: [[NSView]], dots: Bool, fill: NSColor?, glass: Bool, glassTint: NSColor?, cornerRadius: CGFloat) {
+        self.glass = glass
+        self.glassTint = glassTint
+        self.cornerRadius = cornerRadius
+        dotsView = dots ? DotsView() : nil
         shown = cards.map { _ in true }
         holders = cards.map { views in
             let holder = NSView()
@@ -100,7 +130,10 @@ final class CardsView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.masksToBounds = true
+        layer?.backgroundColor = fill?.cgColor
+        layer?.cornerRadius = cornerRadius
         holders.forEach(addSubview)
+        if let dotsView = dotsView { addSubview(dotsView) }
 
         let pan = NSPanGestureRecognizer(target: self, action: #selector(panned(_:)))
         pan.allowedTouchTypes = .direct
@@ -113,7 +146,7 @@ final class CardsView: NSView {
 
     override var intrinsicContentSize: NSSize {
         let widest = holders.compactMap { $0.subviews.first?.fittingSize.width }.max() ?? 0
-        return NSSize(width: widest + (showsDots ? CardsView.dotColumn : 0), height: ItemStyle.barHeight)
+        return NSSize(width: widest + 16, height: ItemStyle.barHeight)
     }
 
     /// Cards that have something to show, in order.
@@ -124,12 +157,21 @@ final class CardsView: NSView {
         shown = values
         if !shown[current], let first = visibleCards.first { current = first }
         needsLayout = true
-        needsDisplay = true
+        updateDots()
     }
 
     override func layout() {
         super.layout()
         place()
+        dotsView?.frame = bounds
+        updateDots()
+    }
+
+    private func updateDots() {
+        guard let dotsView = dotsView else { return }
+        let cards = visibleCards
+        dotsView.count = cards.count
+        dotsView.active = cards.firstIndex(of: current) ?? 0
     }
 
     /// The card next to `current` in the given direction, wrapping around.
@@ -139,7 +181,7 @@ final class CardsView: NSView {
         return cards[(position + step + cards.count) % cards.count]
     }
 
-    private var slotWidth: CGFloat { bounds.width - (showsDots ? CardsView.dotColumn : 0) }
+    private var slotWidth: CGFloat { bounds.width }
 
     private func place() {
         let width = slotWidth
@@ -205,23 +247,36 @@ final class CardsView: NSView {
             self.offset = 0
             self.dragging = false
             self.place()
-            self.needsDisplay = true
+            self.updateDots()
         })
     }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        guard showsDots else { return }
-        let cards = visibleCards
-        guard cards.count > 1 else { return }
-        let size: CGFloat = 4, gap: CGFloat = 4
-        let total = CGFloat(cards.count) * size + CGFloat(cards.count - 1) * gap
-        var y = (bounds.height - total) / 2
-        let x = bounds.width - CardsView.dotColumn / 2 - size / 2
-        for card in cards.reversed() {
-            NSColor.white.withAlphaComponent(card == current ? 0.9 : 0.3).setFill()
-            NSBezierPath(ovalIn: NSRect(x: x, y: y, width: size, height: size)).fill()
-            y += size + gap
+        if glass {
+            GlassPainter.draw(in: self, rect: bounds, radius: cornerRadius, pressed: false, style: CustomButtonTouchBarItem.glassStyle,
+                              tint: glassTint)
+        }
+    }
+}
+
+/// Small dots along the bottom edge, in the order of the swipe: swiping left to the
+/// next card moves the bright dot right. Taps pass through to the keys beneath.
+final class DotsView: NSView {
+    var count = 0 { didSet { needsDisplay = true } }
+    var active = 0 { didSet { needsDisplay = true } }
+
+    override func hitTest(_: NSPoint) -> NSView? { nil }
+
+    override func draw(_: NSRect) {
+        guard count > 1 else { return }
+        let size: CGFloat = 4, gap: CGFloat = 5
+        let total = CGFloat(count) * size + CGFloat(count - 1) * gap
+        var x = (bounds.width - total) / 2
+        for index in 0 ..< count {
+            NSColor.white.withAlphaComponent(index == active ? 0.9 : 0.3).setFill()
+            NSBezierPath(ovalIn: NSRect(x: x, y: 2, width: size, height: size)).fill()
+            x += size + gap
         }
     }
 }
