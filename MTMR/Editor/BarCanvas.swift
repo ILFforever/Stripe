@@ -119,6 +119,19 @@ struct BarCanvas: View {
         }
     }
 
+    /// What a drag from the bar shows: the item picked off a deck's card, or the item itself.
+    @ViewBuilder
+    private func dragPreview(for item: EditorItem) -> some View {
+        if let picked = SettingsWindowController.shared.deckItem(underPressIn: item),
+           let image = ItemSnapshotModel.snapshot(of: picked.view) {
+            Image(nsImage: image)
+        } else if let image = snapshots.images[item.id] {
+            Image(nsImage: image)
+        } else {
+            Text(item.displayName).padding(6)
+        }
+    }
+
     var body: some View {
         VStack(spacing: 4) {
             BarFrame(metrics: snapshots.metrics, bar: document.bar, selected: session.barPanel == .background,
@@ -155,7 +168,7 @@ struct BarCanvas: View {
                 let top = chip.maxY + 1 - row.minY
                 // Just deep enough for the dots (2pt above, 12pt dots, 2pt below).
                 let bottom = top + 16
-                ItemActionsTab(help: "More for \(item.displayName): duplicate, save to My Items, move, remove") {
+                ItemActionsTab(help: "More") {
                     showMenu(for: item)
                 }
                 .frame(width: ItemActionsTab.width, height: bottom - top)
@@ -226,12 +239,21 @@ struct BarCanvas: View {
                             ])
                         })
                         .contextMenu { chipMenu(item) }
-                        .onDrag {
+                        .onDrag({
+                            // On a deck, the item on its card under the pointer comes out, not the whole deck.
+                            if let picked = SettingsWindowController.shared.deckItem(underPressIn: item) {
+                                session.set(\.selection, picked.item.id)
+                                session.dragging = .move(id: picked.item.id)
+                                document.holdsSaves = true
+                                return DragPayload.move(id: picked.item.id).provider
+                            }
                             session.set(\.selection, item.id)
                             session.dragging = .move(id: item.id)
                             document.holdsSaves = true
                             return DragPayload.move(id: item.id).provider
-                        }
+                        }, preview: {
+                            dragPreview(for: item)
+                        })
                         .padding(.leading, align == "center" ? BarMetrics.centerGap(before: index, in: items) : 0)
                 }
                 if let slot = slot, slot >= items.count { dropPlaceholder }
@@ -387,7 +409,7 @@ struct BarChip: View {
             .strokeBorder(isSelected ? Color.accentColor : Color.gray.opacity(0.7),
                           style: StrokeStyle(lineWidth: isSelected ? BarChip.outlineWidth : 1, dash: [3, 3])))
         .contentShape(Rectangle())
-        .help("An empty \(item.info.name.lowercased()). Drag items from the library or the bar onto it.")
+        .help("Empty \(item.info.name.lowercased())")
     }
 
     /// A cluster's items side by side on one background.
@@ -494,7 +516,15 @@ struct ZoneDropDelegate: DropDelegate {
         }
         switch session.dragging {
         case let .move(id)?:
-            guard let item = document.items.first(where: { $0.id == id }) else { return }
+            guard let item = document.items.first(where: { $0.id == id }) else {
+                // An item from inside a card or other container: a gap shows where
+                // it'll land, as for a new one.
+                let slot = DropSlot(align: align, index: section.filter(isLeft).count)
+                if session.dropSlot != slot {
+                    withAnimation(.easeInOut(duration: 0.15)) { session.dropSlot = slot }
+                }
+                return
+            }
             let others = section.filter { $0 !== item }
             let desired = others.filter(isLeft).count
             // Already there: its index in the section counts the others before it.
@@ -539,8 +569,15 @@ struct ZoneDropDelegate: DropDelegate {
             case let .new(type):
                 addNewItem(type, align: align, at: index, document: document, session: session, snapshots: snapshots)
             case let .move(id):
-                if let item = document.items.first(where: { $0.id == id }), item.align != align {
-                    withAnimation { document.place(item, align: align, at: .max) }
+                if let item = document.items.first(where: { $0.id == id }) {
+                    if item.align != align { withAnimation { document.place(item, align: align, at: .max) } }
+                } else if let item = document.find(id) {
+                    // Out of its card or container, onto the bar where the gap is.
+                    withAnimation {
+                        document.remove(item)
+                        document.place(item, align: align, at: index)
+                    }
+                    session.selection = item.id
                 }
             }
             session.endDrag(document)
@@ -566,7 +603,8 @@ struct GroupDropDelegate: DropDelegate {
     /// The bar item being moved in, if it can go inside.
     private var movingItem: EditorItem? {
         guard case let .move(id)? = session.dragging, id != group.id,
-              let item = document.items.first(where: { $0.id == id }), !item.isContainer else { return nil }
+              let item = document.find(id), !item.isContainer,
+              !(group.children ?? []).contains(where: { $0 === item }) else { return nil }
         return item
     }
 
@@ -629,14 +667,14 @@ struct GroupDropDelegate: DropDelegate {
         switch session.dragging {
         case let .new(type)?:
             let item = ItemCatalog.newItem(type, align: "center", document: document)
-            withAnimation { document.add(item, to: group) }
+            withAnimation { document.add(item, to: document.dropTarget(for: group)) }
             snapshots.endPreview()
         case .move?:
             guard let item = movingItem else { return false }
             withAnimation {
                 document.remove(item)
                 item.fields["align"] = nil // items inside a group don't have a position of their own
-                document.add(item, to: group)
+                document.add(item, to: document.dropTarget(for: group))
             }
         case nil:
             return false
@@ -648,12 +686,12 @@ struct GroupDropDelegate: DropDelegate {
 }
 
 extension View {
-    /// Makes a group, folder or popover on the bar accept drops; other items are
-    /// left as they are.
+    /// Makes a group, folder, popover or deck on the bar accept drops; other items
+    /// are left as they are.
     @ViewBuilder
     func acceptsItems(_ item: EditorItem, align: String, document: PresetDocument, session: EditorSession,
                       snapshots: ItemSnapshotModel) -> some View {
-        if ["cluster", "group", "popover"].contains(item.type) {
+        if ["cluster", "group", "popover", "cards"].contains(item.type) {
             onDrop(of: [.plainText], delegate: GroupDropDelegate(group: item, document: document,
                                                                  session: session, snapshots: snapshots,
                                                                  align: align))

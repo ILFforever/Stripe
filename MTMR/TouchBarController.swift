@@ -451,7 +451,7 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
         case let .group(items), let .popover(items, _, _, _):
             if items.isEmpty { return false }
         case let .cards(cards, _):
-            if cards.allSatisfy({ $0.isEmpty }) { return false }
+            if cards.allSatisfy({ $0.items.isEmpty }) { return false }
         default: break
         }
         guard case let .when(condition)? = definition.additionalParameters[.when] else { return true }
@@ -640,8 +640,8 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
                                      align: item.align, liveIcon: liveIcon)
         case let .cluster(items: items, options: options):
             barItem = ClusterBarItem(identifier: identifier, items: items, options: options, definition: item, bar: self)
-        case let .cards(cards: cards, dots: dots):
-            barItem = CardsBarItem(identifier: identifier, cards: cards, dots: dots, definition: item, bar: self)
+        case let .cards(cards: cards, options: options):
+            barItem = CardsBarItem(identifier: identifier, cards: cards, options: options, definition: item, bar: self)
         case .nightShift:
             barItem = NightShiftBarItem(identifier: identifier)
         case .dnd:

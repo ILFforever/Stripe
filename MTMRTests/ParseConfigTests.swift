@@ -82,16 +82,16 @@ class ParseConfig: XCTestCase {
 
     func testCards() {
         let fixture = """
-            [ { "type": "cards", "dots": false, "width": 120,
+            [ { "type": "cards", "loop": true, "width": 120,
                 "cards": [ [ { "type": "staticButton", "title": "A" } ], [ { "type": "cpu" }, { "type": "battery" } ] ] } ]
         """.data(using: .utf8)!
         let result = try? JSONDecoder().decode([BarItemDefinition].self, from: fixture)
-        guard case let .cards(cards, dots)? = result?.first?.type else {
+        guard case let .cards(cards, options)? = result?.first?.type else {
             XCTFail()
             return
         }
-        XCTAssertEqual(cards.map { $0.count }, [1, 2])
-        XCTAssertFalse(dots)
+        XCTAssertEqual(cards.map { $0.items.count }, [1, 2])
+        XCTAssertTrue(options.loop)
         guard case .width(120)? = result?.first?.additionalParameters[.width] else {
             XCTFail()
             return
@@ -103,11 +103,11 @@ class ParseConfig: XCTestCase {
             [ { "type": "cards" } ]
         """.data(using: .utf8)!
         let result = try? JSONDecoder().decode([BarItemDefinition].self, from: fixture)
-        guard case let .cards(cards, dots)? = result?.first?.type else {
+        guard case let .cards(cards, options)? = result?.first?.type else {
             XCTFail()
             return
         }
         XCTAssertTrue(cards.isEmpty)
-        XCTAssertTrue(dots)
+        XCTAssertFalse(options.loop)
     }
 }

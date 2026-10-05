@@ -172,9 +172,9 @@ struct ThemeInspector: View {
 
     private var glassHelp: String {
         switch GlassStyle(rawValue: document.bar["glassStyle"]?.string ?? "") ?? .balanced {
-        case .subtle: return "A soft frost and a light fill"
-        case .balanced: return "Clearly frosted: patterns go soft"
-        case .strong: return "Heavily frosted and brighter"
+        case .subtle: return "Light frost and fill"
+        case .balanced: return "Medium frost"
+        case .strong: return "Heavy frost, brighter"
         }
     }
 
@@ -188,11 +188,11 @@ struct ThemeInspector: View {
                         .background(RoundedRectangle(cornerRadius: 9).fill(Color.secondary.opacity(0.15)))
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Theme").font(.system(size: 17, weight: .semibold))
-                        Text("How the whole bar looks · \(document.displayName)").foregroundColor(.secondary)
+                        Text(document.displayName).foregroundColor(.secondary)
                     }
                 }
                 InspectorGroup(title: "Keys", symbol: "square.on.square") {
-                    FieldRow(label: "Keys", help: "For every key that doesn't choose its own, on its Style tab") {
+                    FieldRow(label: "Keys", help: "Unless a key sets its own") {
                         Picker("", selection: Binding(get: { document.bar["glassKeys"]?.bool == true ? "glass" : "standard" },
                                                       set: { document.setBar("glassKeys", $0 == "glass" ? .bool(true) : nil) })) {
                             Text("Standard").tag("standard")
@@ -210,14 +210,14 @@ struct ThemeInspector: View {
                             }
                             .pickerStyle(.segmented).labelsHidden().fixedSize()
                         }
-                        GlassTintRow(help: "Every glass key washed with a color, unless it has its own",
+                        GlassTintRow(help: "Unless a key sets its own",
                                      value: Binding(get: { document.bar["glassTint"]?.string },
                                                     set: { document.setBar("glassTint", $0.map { .string($0) }) }))
                     }
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     Text("What stays solid").font(.caption.weight(.semibold))
-                    Text("A key's own Background (Color, None or Standard), its pressed color, and its color while it's on all show instead of glass. So do widgets that color their own key, like CPU when it's busy. Sliders, the Dock and Up Next have no key to make glass. Over a video background, glass keys get the fill but not the frosting.")
+                    Text("Keys with their own Background, pressed color or color while on, and widgets that color their own key, like a busy CPU. Sliders, the Dock and Up Next have no key. Over a video background, glass keys get the fill but not the frost.")
                         .font(.caption).foregroundColor(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -270,11 +270,11 @@ struct BarInspector: View {
                         .overlay(RoundedRectangle(cornerRadius: 9).stroke(Color.secondary.opacity(0.4), lineWidth: 0.5))
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Background").font(.system(size: 17, weight: .semibold))
-                        Text("Behind the whole Touch Bar · \(document.displayName)").foregroundColor(.secondary)
+                        Text(document.displayName).foregroundColor(.secondary)
                     }
                 }
                 InspectorGroup(title: "Fill", symbol: "paintbrush") {
-                    FieldRow(label: "Type", help: "Behind every item, right of the Esc key") {
+                    FieldRow(label: "Type", help: "Right of the Esc key") {
                         Picker("", selection: Binding(get: { kind }, set: setKind)) {
                             Text("None").tag("none")
                             Text("Color").tag("color")
@@ -287,12 +287,12 @@ struct BarInspector: View {
                     kindRows
                 }
                 if isLight {
-                    Text("Light backgrounds make white text hard to read. Glass keys darken to stay readable, but readouts that sit straight on the bar (like CPU or the clock) don't; a darker fill works best.")
+                    Text("Light backgrounds make white text hard to read. Glass keys darken to compensate, but readouts on the bar, like CPU or the clock, don't.")
                         .font(.caption).foregroundColor(.orange)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if document.bar["background"] != nil, document.bar["glassKeys"]?.bool != true {
-                    Text("Tip: glass keys let the background show through. Turn them on in Theme.")
+                    Text("Glass keys let the background show through. Turn them on in Theme.")
                         .font(.caption).foregroundColor(.secondary)
                 }
             }
@@ -314,7 +314,7 @@ struct BarInspector: View {
                     colorWell("background.gradient", index: 1, fallback: "#0D3366")
                 }
             }
-            FieldRow(label: "Premade", help: "Premade Themes") {
+            FieldRow(label: "Premade") {
                 HStack(spacing: 6) {
                     ForEach(BarInspector.gradients, id: \.name) { preset in
                         Button(action: { document.setBar("background.gradient", .array(preset.colors.map { .string($0) })) }) {
@@ -345,7 +345,7 @@ struct BarInspector: View {
             FieldRow(label: "Video", help: background["video"]?.string ?? "None chosen") {
                 Button("Choose Video…", action: chooseVideo)
             }
-            ToggleRow(label: "Pause on battery", help: "Playing a video uses about 5% CPU",
+            ToggleRow(label: "Pause on battery", help: "Video uses about 5% CPU",
                       defaultValue: true,
                       value: Binding(get: { background["pauseOnBattery"]?.bool },
                                      set: { document.setBar("background.pauseOnBattery", $0 == false ? .bool(false) : nil) }))

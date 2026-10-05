@@ -1,0 +1,26 @@
+#!/bin/zsh
+# Drives a Stripe launched with STRIPE_DEBUG=1 from the command line (see DEVELOPING.md).
+#
+#   stripe-debug cards swipe -120 0        any debug command, e.g. a swipe across every deck
+#   stripe-debug shot [file.png]           screenshot the Touch Bar (default: touchbar.png)
+#   stripe-debug log [seconds]             Stripe's debug log lines from the last few seconds (default 5)
+#
+# Commands go out as a distributed notification, sent through JavaScript for
+# Automation so each one takes a moment rather than a Swift compile.
+
+case $1 in
+  shot)
+    screencapture -b -x "${2:-touchbar.png}" && echo "${2:-touchbar.png}" ;;
+  log)
+    /usr/bin/log show --style compact --last "${2:-5}s" --predicate 'subsystem == "com.ilfforever.stripe"' \
+      | sed -n 's/^.*\[com\.ilfforever\.stripe:debug\] //p' ;;
+  ""|-h|--help)
+    sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *)
+    /usr/bin/osascript -l JavaScript -e '
+      ObjC.import("Foundation");
+      function run(argv) {
+        $.NSDistributedNotificationCenter.defaultCenter
+          .postNotificationNameObjectUserInfoDeliverImmediately("com.ilfforever.stripe.debug", argv.join(" "), $(), true);
+      }' -- "$@" ;;
+esac

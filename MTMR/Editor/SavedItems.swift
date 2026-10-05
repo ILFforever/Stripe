@@ -92,7 +92,7 @@ final class SavedItems: ObservableObject {
     /// Asks for a name, then saves the item to My Items.
     static func promptSave(_ item: EditorItem) {
         guard let name = askName(title: "Save to My Items",
-                                 message: "Save “\(item.displayName)” to the library, with its look, actions and contents, to add again later.",
+                                 message: "Saves its look, actions and contents.",
                                  initial: item.displayName, button: "Save") else { return }
         shared.save(item, name: name)
     }

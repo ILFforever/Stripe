@@ -152,8 +152,14 @@ final class ItemSnapshotModel: ObservableObject {
               item.view != nil else { return }
         previewItem = item
         snapshotPreview()
-        // Widgets fill in their first reading a moment later.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.snapshotPreview() }
+        // Widgets fill in their first reading a moment later; some (network speed,
+        // scripts, weather) take a second or two, and stay hidden until then.
+        for delay in [0.3, 1.2, 2.5] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self = self, self.previewItem === item else { return }
+                self.snapshotPreview()
+            }
+        }
     }
 
     func endPreview() {
@@ -286,12 +292,15 @@ final class ContainerPreviewModel: ObservableObject {
         self.window = window
         bar.layoutSubtreeIfNeeded()
         image = ContainerPreviewModel.snapshot(of: bar)
-        // Widgets fill in their first reading a moment later; then the copies stop.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
-            guard let self = self, self.generation == current else { return }
-            bar.layoutSubtreeIfNeeded()
-            self.image = ContainerPreviewModel.snapshot(of: bar)
-            self.stop()
+        // Widgets fill in their first reading a moment later; some take a second or
+        // two (network speed, scripts, weather) and stay hidden until then.
+        for (delay, last) in [(0.4, false), (1.2, false), (2.5, true)] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self = self, self.generation == current else { return }
+                bar.layoutSubtreeIfNeeded()
+                self.image = ContainerPreviewModel.snapshot(of: bar)
+                if last { self.stop() }
+            }
         }
     }
 
@@ -324,7 +333,7 @@ final class ContainerPreviewModel: ObservableObject {
 
     /// Renders the layers too: keys Stripe draws itself are layer backgrounds,
     /// which drawing the views alone would leave out.
-    private static func snapshot(of view: NSView) -> NSImage? {
+    static func snapshot(of view: NSView) -> NSImage? {
         let scale: CGFloat = 2
         let size = view.bounds.size
         guard size.width > 0, let layer = view.layer,
@@ -336,5 +345,101 @@ final class ContainerPreviewModel: ObservableObject {
         layer.render(in: context)
         guard let cgImage = context.makeImage() else { return nil }
         return NSImage(cgImage: cgImage, size: size)
+    }
+}
+
+/// Pictures of a deck's cards, one each, as they show on the bar: each card is
+/// built as a deck of one (in the deck's own background and shape) off the bar.
+final class DeckPreviewModel: ObservableObject {
+    /// The last pictures taken, shared: opening another card of the same deck
+    /// makes a new preview, which starts from these instead of blank.
+    private static var cache: [UUID: NSImage] = [:]
+    @Published private(set) var images: [UUID: NSImage] = DeckPreviewModel.cache
+    private var items: [NSTouchBarItem] = []
+    private var windows: [NSWindow] = []
+    private var generation = 0
+
+    func build(_ deck: EditorItem) {
+        stop()
+        generation += 1
+        let current = generation
+        // The deck's look, without what places or hides it on the bar.
+        guard case var .object(look) = deck.json else { return }
+        for key in ["cards", "align", "when", "loop"] { look.removeValue(forKey: key) }
+
+        var bars: [(id: UUID, view: NSView)] = []
+        for card in deck.children ?? [] {
+            guard !(card.children ?? []).isEmpty else { continue }
+            // The card in its own look; pictured even when its "when" doesn't hold now.
+            var own = card.cardJSON
+            if case var .object(fields) = own {
+                fields.removeValue(forKey: "when")
+                own = .object(fields)
+            }
+            var single = look
+            single["cards"] = .array([own])
+            let identifier = NSTouchBarItem.Identifier("com.ilfforever.stripe.deckPreview." + UUID().uuidString)
+            guard let data = JSONValue.array([.object(single)]).pretty().data(using: .utf8),
+                  let definition = data.barItemDefinitions()?.first,
+                  let item = TouchBarController.shared.createItem(forIdentifier: identifier, definition: definition),
+                  let view = item.view else { continue }
+            self.items.append(item)
+
+            let size = NSSize(width: max(view.intrinsicContentSize.width, 1), height: ItemStyle.barHeight)
+            let bar = NSView(frame: NSRect(origin: .zero, size: size))
+            bar.appearance = NSAppearance(named: .darkAqua)
+            bar.wantsLayer = true
+            bar.layer?.backgroundColor = NSColor.black.cgColor
+            view.isHidden = false
+            view.frame = bar.bounds
+            view.autoresizingMask = [.width, .height]
+            bar.addSubview(view)
+            // In a window, never shown, so every view and layer draws as on the bar.
+            let window = NSWindow(contentRect: bar.frame, styleMask: .borderless, backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.backgroundColor = .black
+            window.contentView = bar
+            windows.append(window)
+            bar.layoutSubtreeIfNeeded()
+            bars.append((card.id, bar))
+        }
+        // The first pictures, taken before the copies have drawn, only stand in
+        // for cards with none yet; the ones taken once they've settled replace them.
+        snap(bars, settled: false)
+        // Widgets fill in their first reading a moment later; some (network speed,
+        // scripts, weather) take a second or two, and stay hidden until then.
+        for (delay, last) in [(0.4, false), (1.2, false), (2.5, true)] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self = self, self.generation == current else { return }
+                self.snap(bars, settled: true)
+                if last { self.stop() }
+            }
+        }
+    }
+
+    private func snap(_ bars: [(id: UUID, view: NSView)], settled: Bool) {
+        var pictures: [UUID: NSImage] = [:]
+        for bar in bars where settled || images[bar.id] == nil {
+            // A widget that has shown since may have made its card wider.
+            if let deck = bar.view.subviews.first {
+                let width = max(deck.intrinsicContentSize.width, 1)
+                if width != bar.view.frame.width {
+                    bar.view.window?.setContentSize(NSSize(width: width, height: ItemStyle.barHeight))
+                    bar.view.frame.size.width = width
+                    deck.frame = bar.view.bounds
+                }
+            }
+            bar.view.layoutSubtreeIfNeeded()
+            if let image = ContainerPreviewModel.snapshot(of: bar.view) { pictures[bar.id] = image }
+        }
+        // Each card keeps its old picture until its new one is ready.
+        images.merge(pictures) { _, new in new }
+        DeckPreviewModel.cache.merge(pictures) { _, new in new }
+    }
+
+    func stop() {
+        tearDownItems(items)
+        items = []
+        windows = []
     }
 }

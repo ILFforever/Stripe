@@ -18,10 +18,10 @@ struct PerformancePanelSection: View {
         VStack(alignment: .leading, spacing: 0) {
             previewImage
                 .padding(.top, 10)
-            Text("Tap the item to open this page across the whole bar; press and hold to open Activity Monitor.")
+            Text("Tap opens this page. Press and hold opens Activity Monitor.")
                 .font(.caption).foregroundColor(.secondary)
                 .padding(.vertical, 8)
-            FieldRow(label: "Back button", help: "Where the button that closes the page sits") {
+            FieldRow(label: "Back button") {
                 Picker("", selection: Binding(get: { item[string: "panelCloseSide"] ?? "" },
                                               set: { item[string: "panelCloseSide"] = $0 })) {
                     Text("Item's side").tag("")
@@ -30,7 +30,7 @@ struct PerformancePanelSection: View {
                 }
                 .pickerStyle(.segmented).labelsHidden().fixedSize()
             }
-            FieldRow(label: "Tiles", help: "Tiles that don't fit drop out, least important first") {
+            FieldRow(label: "Tiles", help: "Least important drop out first if space runs short") {
                 // Two rows at most, so the checkboxes stay inside the inspector.
                 let tiles = kind.tiles
                 let half = (tiles.count + 1) / 2

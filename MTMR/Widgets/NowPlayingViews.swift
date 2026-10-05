@@ -69,15 +69,10 @@ final class MediaKeyView: NSView {
     /// Called after the tap's own action.
     var onPress: (() -> Void)?
     private let onTap: () -> Void
+    /// Pressed, the icon dims, as a key without a background of its own (the
+    /// Play / Pause widget) does; there's no box behind it.
     private var pressed = false {
-        didSet {
-            guard pressed != oldValue else { return }
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = pressed ? 0.08 : 0.2
-                context.allowsImplicitAnimation = true
-                layer?.backgroundColor = NSColor(white: 1, alpha: pressed ? 0.22 : 0).cgColor
-            }
-        }
+        didSet { if pressed != oldValue { needsDisplay = true } }
     }
 
     init(symbol: String, action: @escaping () -> Void) {
@@ -101,7 +96,7 @@ final class MediaKeyView: NSView {
 
     override func draw(_: NSRect) {
         let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
-            .applying(NSImage.SymbolConfiguration(paletteColors: [NSColor(white: 1, alpha: dimmed ? 0.3 : 1)]))
+            .applying(NSImage.SymbolConfiguration(paletteColors: [NSColor(white: 1, alpha: dimmed ? 0.3 : pressed ? 0.45 : 1)]))
         guard let glyph = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(config) else { return }
         let size = glyph.size
         glyph.draw(in: NSRect(x: (bounds.width - size.width) / 2, y: (bounds.height - size.height) / 2,

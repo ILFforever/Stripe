@@ -59,6 +59,34 @@ struct Theme {
 
     var closeButton: CloseButton
 
+    /// How a deck of cards (CardsBarItem) looks and moves.
+    struct Deck {
+        /// Space between a card's edges and its widest row.
+        var padding: CGFloat = 8
+        /// How much more of each card behind the top one shows at the deck's edge;
+        /// a deck that moves up or down shows one card behind, by less, as the bar is only 30 points tall.
+        var edgeStep: CGFloat = 3
+        var verticalEdgeStep: CGFloat = 2
+        /// The top card's scale and shade, then the cards one and two behind it.
+        var scales: [CGFloat] = [1, 0.88, 0.78]
+        var shades: [Float] = [0, 0.38, 0.58]
+        /// Marks a card's edge behind a solid (not glass) deck, which has no bright rim.
+        var outline = NSColor(white: 1, alpha: 0.16)
+        /// While cards move, the deck's left edge blurs over this width, by this
+        /// radius, and its last points fade out, so nothing ends on a hard line.
+        var softEdgeWidth: CGFloat = 22
+        var softEdgeBlur: CGFloat = 4
+        var fadeWidth: CGFloat = 2
+        var duration: CFTimeInterval = 0.4
+        /// A drag has to go a third of the card, and at least this far, to change cards.
+        var minimumSwipe: CGFloat = 44
+        /// The least room a slider, or a scrolling strip (Dock, Up Next), gets on a card.
+        var sliderWidth: CGFloat = 160
+        var stripWidth: CGFloat = 200
+    }
+
+    var deck = Deck()
+
     /// Matches macOS's own Touch Bar controls (measured from the system volume
     /// control): a small light-gray circle with a bold black ✕.
     static let stripe = Theme(

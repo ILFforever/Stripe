@@ -342,7 +342,7 @@ enum ItemType: Decodable {
     case group(items: [BarItemDefinition])
     case popover(items: [BarItemDefinition], pressAndHold: Bool, autoClose: Double?, liveIcon: Bool)
     case cluster(items: [BarItemDefinition], options: ClusterOptions)
-    case cards(cards: [[BarItemDefinition]], dots: Bool)
+    case cards(cards: [CardDefinition], options: CardsOptions)
     case nightShift
     case dnd
     case pomodoro(workTime: Double, restTime: Double, design: PomodoroBarItem.Design)
@@ -369,7 +369,7 @@ enum ItemType: Decodable {
         case url
         case longUrl
         case items
-        case cards, dots
+        case cards, loop, remember, rotate, tick // (and "direction", shared with swipes)
         case workTime
         case restTime
         case flip
@@ -553,9 +553,19 @@ enum ItemType: Decodable {
             self = .cluster(items: items, options: options)
 
         case .cards:
-            let cards = try container.decodeIfPresent([[BarItemDefinition]].self, forKey: .cards) ?? []
-            let dots = try container.decodeIfPresent(Bool.self, forKey: .dots) ?? true
-            self = .cards(cards: cards, dots: dots)
+            let cards = try container.decodeIfPresent([CardDefinition].self, forKey: .cards) ?? []
+            var options = CardsOptions()
+            options.direction = try container.decodeIfPresent(String.self, forKey: .direction)
+                .flatMap(CardsOptions.Direction.init(rawValue:)) ?? options.direction
+            options.loop = try container.decodeIfPresent(Bool.self, forKey: .loop) ?? options.loop
+            options.remember = try container.decodeIfPresent(Bool.self, forKey: .remember) ?? options.remember
+            options.rotate = try container.decodeIfPresent(Double.self, forKey: .rotate)
+            options.tick = try container.decodeIfPresent(Bool.self, forKey: .tick) ?? options.tick
+            options.dividers = try container.decodeIfPresent(Bool.self, forKey: .dividers) ?? options.dividers
+            options.spacing = try container.decodeIfPresent(CGFloat.self, forKey: .spacing)
+            options.itemWidth = try container.decodeIfPresent(CGFloat.self, forKey: .itemWidth)
+            options.padding = try container.decodeIfPresent(CGFloat.self, forKey: .padding)
+            self = .cards(cards: cards, options: options)
 
         case .nightShift:
             self = .nightShift
@@ -838,6 +848,63 @@ enum GeneralParameter {
     case glass(_: Bool)
     /// A color the glass is tinted with ("glassTint").
     case glassTint(_: NSColor)
+}
+
+/// How a deck of cards behaves and lays out its cards; see CardsBarItem.
+struct CardsOptions {
+    /// Where the cards behind the top one peek out: on the right, below or above.
+    /// A deck is always swiped sideways (the Touch Bar can't sense up or down).
+    enum Direction: String { case across, up, down }
+    var direction = Direction.across
+    /// The deck never runs out: the top card goes to the back.
+    var loop = false
+    /// Comes back to the card it was on when the bar is rebuilt (an app switch, a preset reload).
+    var remember = true
+    /// Turns to the next card every so many seconds, pausing after a touch.
+    var rotate: Double?
+    /// A haptic tick when a card lands.
+    var tick = true
+    // A card's row of items, as in a group.
+    var dividers = false
+    var spacing: CGFloat?
+    var itemWidth: CGFloat?
+    var padding: CGFloat?
+}
+
+/// One card in a deck: a list of items, or an object with its items and
+/// settings of its own: `{ "items": […], "title": "Media", "when": {…},
+/// "background": "#333333", "glass": true, "cornerRadius": 8 }`.
+/// The title is only for Settings.
+struct CardDefinition: Decodable {
+    let items: [BarItemDefinition]
+    /// Its own look (background, glass, tint, corners), over the deck's.
+    let look: [GeneralParameters.CodingKeys: GeneralParameter]
+    /// Only shows while this holds.
+    let when: ItemCondition?
+
+    init(items: [BarItemDefinition], look: [GeneralParameters.CodingKeys: GeneralParameter] = [:], when: ItemCondition? = nil) {
+        self.items = items
+        self.look = look
+        self.when = when
+    }
+
+    private enum Keys: String, CodingKey { case items }
+
+    init(from decoder: Decoder) throws {
+        if var list = try? decoder.unkeyedContainer() {
+            var items: [BarItemDefinition] = []
+            while !list.isAtEnd { items.append(try list.decode(BarItemDefinition.self)) }
+            self.init(items: items)
+            return
+        }
+        let container = try decoder.container(keyedBy: Keys.self)
+        var parameters = try GeneralParameters(from: decoder).parameters
+        var when: ItemCondition?
+        if case let .when(condition)? = parameters.removeValue(forKey: .when) { when = condition }
+        let lookKeys: Set<GeneralParameters.CodingKeys> = [.background, .bordered, .glass, .glassTint, .style]
+        self.init(items: try container.decodeIfPresent([BarItemDefinition].self, forKey: .items) ?? [],
+                  look: parameters.filter { lookKeys.contains($0.key) }, when: when)
+    }
 }
 
 struct GeneralParameters: Decodable {

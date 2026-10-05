@@ -42,6 +42,9 @@ final class EditorSession: ObservableObject {
     /// Where each item on the bar is, in window coordinates (top-left origin), so a
     /// press can select it before any drag starts (see SettingsWindowController).
     var chipFrames: [UUID: CGRect] = [:]
+    /// Where the last press on the window was, in the same coordinates: a drag
+    /// that starts on a deck takes the item on its card under this point.
+    var pressPoint: CGPoint?
     /// Where each item is within its section, in the section's own coordinates:
     /// the space drops on that section report the pointer in (see ZoneDropDelegate).
     var zoneFrames: [UUID: CGRect] = [:]
@@ -90,7 +93,6 @@ struct SettingsView: View {
     private var stage: some View {
         VStack(spacing: 5) {
             HStack {
-                Text("Live preview")
                 Spacer()
                 Text("Drag off to remove")
             }
@@ -98,7 +100,6 @@ struct SettingsView: View {
             .foregroundColor(.secondary)
             .padding(.horizontal, 4)
             BarCanvas(document: document, session: session, snapshots: snapshots)
-                .help("Click an item to edit it. Drag to reorder, or drag into the library to remove.")
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 4)
@@ -120,9 +121,9 @@ struct SettingsView: View {
                                 : session.leftPane == "bars" ? "Search bars" : "Search your bar",
                             text: $session.search)
                 PaneToggle(selection: $session.leftPane, options: [
-                    ("library", "square.grid.2x2", "Library: every item you can add"),
-                    ("outline", "list.bullet", "Outline: the items on your bar"),
-                    ("bars", "rectangle.stack", "Bars: the main bar, and bars for particular apps"),
+                    ("library", "square.grid.2x2", "Library"),
+                    ("outline", "list.bullet", "Outline"),
+                    ("bars", "rectangle.stack", "Bars"),
                 ])
             }
             .padding(.horizontal, 12)
@@ -161,7 +162,7 @@ struct SettingsView: View {
             Text(document.displayName)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(.secondary)
-                .help("The bar you're editing. Switch bars in the left pane's Bars tab.")
+                .help("Switch bars in the Bars tab")
             Spacer()
             // Edits show on the bar straight away, so only problems need a message.
             if let error = document.loadError {
@@ -171,14 +172,14 @@ struct SettingsView: View {
                     .lineLimit(1)
             }
             HStack(spacing: 6) {
-                panelButton(.background, "Background", "photo", "What's behind the items: a color, gradient, pattern or video")
-                panelButton(.theme, "Theme", "paintpalette", "How the whole bar looks: standard or glass keys")
+                panelButton(.background, "Background", "photo", "Bar background")
+                panelButton(.theme, "Theme", "paintpalette", "Bar theme")
             }
             Divider().frame(height: 16)
             HStack(spacing: 2) {
                 Button(action: document.undo) { Image(systemName: "arrow.uturn.backward") }
                     .disabled(!document.canUndo)
-                    .help("Undo the last change")
+                    .help("Undo")
                 Button(action: document.redo) { Image(systemName: "arrow.uturn.forward") }
                     .disabled(!document.canRedo)
                     .help("Redo")
@@ -290,8 +291,8 @@ struct SettingsView: View {
         } else {
             VStack(spacing: 10) {
                 Image(systemName: "hand.point.up.left").font(.system(size: 36)).foregroundColor(.secondary)
-                Text("Select an item on the bar to edit it").font(.title3)
-                Text("Drag items from the Library onto the bar to add them. Right-click an item for more options.")
+                Text("No Selection").font(.title3)
+                Text("Drag items from the Library onto the bar to add them.")
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 360)

@@ -35,7 +35,9 @@ struct ItemInspector: View {
 
     /// Items that aren't drawn (swipe gestures) have no Style.
     private var tabs: [Tab] {
-        item.info.isVisibleOnBar ? Tab.allCases : [.item, .behavior, .advanced]
+        // A card: its items and name, its own look, and when it shows. Its size is the deck's.
+        if item.type == "card" { return [.item, .style, .behavior] }
+        return item.info.isVisibleOnBar ? Tab.allCases : [.item, .behavior, .advanced]
     }
 
     private var shownTab: Tab {
@@ -91,9 +93,9 @@ struct ItemInspector: View {
 
     /// What a tap on Now Playing does for each "tapOpens" choice.
     private static let nowPlayingTaps: [(id: String, name: String, does: String, help: String)] = [
-        ("none", "Play/Pause", "Plays or pauses", "A tap plays or pauses whatever is playing."),
-        ("side", "Side", "Slides out controls", "A tap slides previous, play/pause and next out beside the key; they slide back after a few seconds, or on another tap."),
-        ("full", "Full", "Opens the controls", "A tap opens the controls across the bar: the track, how far in it is, and previous, play/pause and next, with a back arrow at the end."),
+        ("none", "Play/Pause", "Plays or pauses", "Plays or pauses"),
+        ("side", "Side", "Slides out controls", "Previous, play/pause and next beside the key, for a few seconds"),
+        ("full", "Full", "Opens the controls", "Track, progress and controls across the whole bar"),
     ]
 
     /// What the double tap and press and hold can be set to, and what each does by default.
@@ -118,7 +120,7 @@ struct ItemInspector: View {
         FieldRow(label: "Press and hold") {
             Text(titles[nowPlayingGesture("holdDoes", fallback: "next")] ?? "").foregroundColor(.secondary)
         }
-        Text("Change them under Click controls. The Mini player design has keys of its own for previous, play/pause and next.")
+        Text("The Mini player design has its own previous, play/pause and next keys.")
             .font(.caption)
             .foregroundColor(.secondary)
             .padding(.vertical, 8)
@@ -166,9 +168,15 @@ struct ItemInspector: View {
                 nowPlayingClickControls
             }
         }
-        if !item.info.fields.isEmpty {
-            InspectorGroup(title: item.info.name, symbol: item.info.symbol) {
-                ForEach(item.info.fields) { field in
+        // A container's contents come first: they're what it's for.
+        if item.info.isContainer {
+            InspectorGroup(title: item.type == "cards" ? "Cards" : "Items", symbol: item.type == "cards" ? "rectangle.stack" : "square.stack") {
+                ContainerItemsEditor(container: item, session: session)
+            }
+        }
+        ForEach(fieldSections, id: \.title) { section in
+            InspectorGroup(title: section.title, symbol: section.symbol) {
+                ForEach(section.fields) { field in
                     fieldView(field)
                 }
             }
@@ -184,13 +192,8 @@ struct ItemInspector: View {
                 PerformancePanelSection(item: item, kind: page, preview: PerformancePanelPreviewModel.shared)
             }
         }
-        if item.info.isContainer {
-            InspectorGroup(title: "Items", symbol: "square.stack") {
-                ContainerItemsEditor(container: item, session: session)
-            }
-        }
         if item.info.fields.isEmpty && item.type != "battery" && item.info.performancePage == nil && !item.info.isContainer {
-            Text("\(item.info.name) has no settings of its own. How it looks is under Style, and what it does under Behavior.")
+            Text("\(item.info.name) has no settings of its own.")
                 .foregroundColor(.secondary)
         }
     }
@@ -244,14 +247,14 @@ struct ItemInspector: View {
         if item.info.supportsIcon || item.info.supportsBackground {
             StyleEditor(item: item, whileOn: false).id(item.id)
         } else if item.info.designs == nil {
-            Text("\(item.info.name) doesn't take styling. Its width is under Advanced.")
+            Text("\(item.info.name) has no style settings. Width is under Advanced.")
                 .foregroundColor(.secondary)
         }
         if item.info.supportsButtonStyling {
             if hasOnState {
                 StyleEditor(item: item, whileOn: true).id(item.id)
             } else {
-                Text("To give it a different look while it's on, add an On when condition under Behavior.")
+                Text("For a different look while on, add an On when condition under Behavior.")
                     .font(.caption).foregroundColor(.secondary)
             }
         }
@@ -267,18 +270,25 @@ struct ItemInspector: View {
         }
         InspectorGroup(title: "Shows when", symbol: "eye") {
             ConditionsEditor(item: item, base: "when", verb: "shows",
-                             empty: "Always shows. Add a condition to show it only sometimes.").id(item.id)
+                             empty: item.type == "card"
+                                 ? "Always in the deck. While a condition doesn't hold, the deck skips it."
+                                 : "Always shows.").id(item.id)
+        }
+        if item.type == "cards" {
+            InspectorGroup(title: "Swiping", symbol: "hand.draw") {
+                ToggleRow(label: "Haptic tick", help: "When a card lands", defaultValue: true, value: bool("tick"))
+            }
         }
         if item.info.supportsButtonStyling {
             InspectorGroup(title: "On when", symbol: "power") {
                 if let state = item.info.builtInActiveState {
-                    Text("Built in: on while \(state). A condition here decides it instead.")
+                    Text("On while \(state). A condition overrides this.")
                         .font(.caption).foregroundColor(.secondary)
                         .padding(.vertical, 8)
                 }
                 ConditionsEditor(item: item, base: "activeWhen", verb: "is on",
                                  empty: item.info.builtInActiveState == nil
-                                     ? "Never on. Add a condition to give it an on state, with its own look under Style."
+                                     ? "Never on."
                                      : "").id(item.id)
             }
         }
@@ -302,7 +312,7 @@ struct ItemInspector: View {
     private var advancedTab: some View {
         if item.info.isVisibleOnBar {
             InspectorGroup(title: "Size", symbol: "arrow.left.and.right") {
-                NumberFieldRow(label: "Width", placeholder: "Automatic", help: "In points; the bar is about 1000 wide",
+                NumberFieldRow(label: "Width", placeholder: "Automatic", help: "Points (the bar is about 1000)",
                                value: number("width"))
             }
         }
@@ -340,7 +350,7 @@ struct ItemInspector: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .fixedSize()
-                .help("Position on the bar. You can also drag the item there.")
+                .help("Position on the bar")
             }
             itemMenu
         }
@@ -392,7 +402,15 @@ struct ItemInspector: View {
     private var subtitle: String {
         var parts = [item.info.category]
         if item.displayName != item.info.name { parts.append(item.info.name) }
-        if let count = item.children?.count { parts.append(count == 1 ? "1 item" : "\(count) items") }
+        if item.type == "card" {
+            // Where the card sits, rather than the category and type the title already says.
+            let deck = item.document?.parent(of: item)?.children ?? []
+            if let index = deck.firstIndex(where: { $0 === item }) { parts = ["Card \(index + 1) of \(deck.count)"] }
+        }
+        if let count = item.children?.count {
+            let noun = item.type == "cards" ? "card" : "item"
+            parts.append(count == 1 ? "1 \(noun)" : "\(count) \(noun)s")
+        }
         return parts.joined(separator: " · ")
     }
 
@@ -400,16 +418,44 @@ struct ItemInspector: View {
     private func fieldView(_ field: FieldSpec) -> some View {
         switch field.kind {
         case let .text(placeholder):
-            TextFieldRow(label: field.label, placeholder: placeholder, text: string(field.path))
+            TextFieldRow(label: field.label, placeholder: placeholder, help: field.help, text: string(field.path))
         case .multiline:
             MultilineRow(label: field.label, text: string(field.path))
         case let .number(placeholder):
-            NumberFieldRow(label: field.label, placeholder: placeholder, value: number(field.path))
+            NumberFieldRow(label: field.label, placeholder: placeholder, help: field.help, value: number(field.path))
         case let .toggle(defaultValue):
-            ToggleRow(label: field.label, defaultValue: defaultValue, value: bool(field.path))
+            ToggleRow(label: field.label, help: field.help, defaultValue: defaultValue, value: bool(field.path))
         case let .choice(options):
             ChoiceRow(label: field.label, options: options, value: string(field.path))
+        case let .segments(choices, fallback):
+            FieldRow(label: field.label, help: field.help) {
+                Picker("", selection: Binding(get: { item[string: field.path] ?? fallback },
+                                              set: { item[string: field.path] = $0 == fallback ? nil : $0 })) {
+                    ForEach(choices, id: \.value) { choice in
+                        Text(choice.label).tag(choice.value)
+                    }
+                }
+                .pickerStyle(.segmented).labelsHidden().fixedSize()
+            }
         }
+    }
+
+    /// The item's settings in their boxes, in the order they're listed; those
+    /// without a box of their own go under the item's name.
+    private var fieldSections: [(title: String, symbol: String, fields: [FieldSpec])] {
+        var sections: [(title: String, symbol: String, fields: [FieldSpec])] = []
+        for field in item.info.fields {
+            let title = field.section ?? item.info.name
+            if let index = sections.firstIndex(where: { $0.title == title }) {
+                sections[index].fields.append(field)
+            } else {
+                let symbol = field.section == nil ? item.info.symbol
+                    : ["Changing cards": "arrow.left.arrow.right", "Layout": "rectangle.split.3x1",
+                       "Each card's row": "rectangle.split.3x1"][title] ?? item.info.symbol
+                sections.append((title, symbol, [field]))
+            }
+        }
+        return sections
     }
 
     // Bindings into the item's JSON; empty values remove the key.
@@ -514,7 +560,7 @@ struct StyleEditor: View {
     var body: some View {
         InspectorGroup(title: whileOn ? "While on" : "Look", symbol: whileOn ? "power" : "paintpalette", accessory: { addMenu }) {
             if shown.isEmpty {
-                Text(whileOn ? "Looks the same as when it's off. Add what should change while it's on."
+                Text(whileOn ? "Looks the same as when it's off."
                              : "Nothing set yet.")
                     .font(.caption).foregroundColor(.secondary)
                     .padding(.vertical, 10)
@@ -567,7 +613,7 @@ struct StyleEditor: View {
                       value: string("fontWeight"))
         case .textColor: ColorRow(label: "Text color", value: string("textColor"), suggested: "#FFFFFF")
         case .digits:
-            ToggleRow(label: "Fixed-width digits", help: "Keeps changing numbers from shifting",
+            ToggleRow(label: "Fixed-width digits",
                       defaultValue: false, value: Binding(get: { item[bool: "monospacedDigits"] }, set: { item[bool: "monospacedDigits"] = $0 }))
         case .pressed: ColorRow(label: "Pressed color", value: string("pressedBackground"), suggested: "#636366")
         case .onBackground: ColorRow(label: "Background", value: string("activeBackground"), suggested: "#30D158")
@@ -621,7 +667,7 @@ struct ConditionsEditor: View {
             if shown.isEmpty && !empty.isEmpty {
                 Text(empty).font(.caption).foregroundColor(.secondary).padding(.vertical, 10)
             } else if shown.count > 1 {
-                Text("It \(verb) while all of these are true.").font(.caption).foregroundColor(.secondary).padding(.top, 8)
+                Text("All of these must be true.").font(.caption).foregroundColor(.secondary).padding(.top, 8)
             }
             ForEach(shown, id: \.0) { kind, label in
                 RemovableRow(remove: { remove(kind) }) { conditionRow(kind, label) }
@@ -649,7 +695,7 @@ struct ConditionsEditor: View {
         case "time":
             TextFieldRow(label: label, placeholder: "09:00-18:00", text: string(path(kind)))
         default:
-            FieldRow(label: label, help: "Holds while it exits with 0") {
+            FieldRow(label: label, help: "Exit status 0") {
                 HStack(spacing: 6) {
                     TextField("pgrep -q Zoom", text: string(path(kind)))
                         .textFieldStyle(.roundedBorder)
@@ -714,7 +760,7 @@ struct ActionsEditor: View {
                     .padding(.vertical, 8)
             }
             if actions.isEmpty {
-                Text(hasBuiltInAction ? "Uses its built-in action. An action here replaces it for the same trigger." : "No actions yet.")
+                Text(hasBuiltInAction ? "Uses its built-in action. An action here overrides it for that trigger." : "No actions yet.")
                     .font(.caption).foregroundColor(.secondary)
                     .padding(.vertical, 10)
             }
@@ -941,7 +987,7 @@ struct RawJSONEditor: View {
                 Button("Apply", action: apply).keyboardShortcut(.return, modifiers: .command)
                 Button("Revert") { reload() }
                 Spacer()
-                Text("Every key is supported here, including ones without a control above.")
+                Text("All keys, including those without a control")
                     .font(.caption).foregroundColor(.secondary)
             }
         }
@@ -980,7 +1026,7 @@ struct RawJSONEditor: View {
 /// Tints glass with a color, or leaves it clear: a switch, and a color well once on.
 struct GlassTintRow: View {
     var label = "Tint"
-    let help: String
+    var help: String? = nil
     @Binding var value: String?
 
     var body: some View {
@@ -1030,8 +1076,7 @@ struct BackgroundRow: View {
 
     private var help: String? {
         switch mode {
-        case "standard": return "The standard gray key"
-        case "glass": return item[bool: "glass"] == nil ? "Glass, from the bar's Theme" : "Translucent: the bar's background shows through"
+        case "glass": return item[bool: "glass"] == nil ? "From the bar's Theme" : nil
         default: return nil
         }
     }
@@ -1058,8 +1103,7 @@ struct BackgroundRow: View {
             }
         }
         if mode == "glass" {
-            GlassTintRow(help: "Glass washed with a color; the background still shows through",
-                         value: Binding(get: { item[string: "glassTint"] }, set: { item[string: "glassTint"] = $0 }))
+            GlassTintRow(value: Binding(get: { item[string: "glassTint"] }, set: { item[string: "glassTint"] = $0 }))
         }
     }
 
@@ -1185,6 +1229,8 @@ struct AppRuleRow: View {
 struct ContainerItemsEditor: View {
     @ObservedObject var container: EditorItem
     let session: EditorSession
+    /// Set while a drag is over the list.
+    private let targeted = State<UUID?>(initialValue: nil)
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1193,41 +1239,77 @@ struct ContainerItemsEditor: View {
                 OpenedBarPreview(container: container)
                 Divider().opacity(0.5)
             }
+            // A card's own picture, unless it's empty (the list below says so).
+            if let deck = deck, !(deck.children ?? []).isEmpty, container.type != "card" || !children.isEmpty {
+                DeckPreview(deck: deck, highlighted: container.type == "card" ? container : nil, session: session)
+                Divider().opacity(0.5)
+            }
             if children.isEmpty {
                 Text(emptyMessage)
                     .foregroundColor(.secondary)
                     .padding(.vertical, 8)
+                if !ItemCatalog.starters(for: container.type).isEmpty {
+                    StarterPicker(container: container)
+                    Divider().opacity(0.5)
+                }
             }
             ForEach(Array(children.enumerated()), id: \.element.id) { index, child in
-                ChildRow(child: child,
-                         canMoveUp: index > 0,
-                         canMoveDown: index < children.count - 1,
-                         open: { session.selection = child.id },
-                         move: { offset in move(index, by: offset) },
-                         remove: { remove(child) })
-                Divider().opacity(0.5)
-            }
-            Menu {
-                ForEach(ItemCatalog.categories, id: \.self) { category in
-                    Menu(category) {
-                        ForEach(ItemCatalog.all.filter { $0.category == category && !$0.isContainer }, id: \.type) { info in
-                            Button(action: { add(info.type) }) { Label(info.name, systemImage: info.symbol) }
-                        }
+                let row = ChildRow(child: child,
+                                   canMoveUp: index > 0,
+                                   canMoveDown: index < children.count - 1,
+                                   open: { session.selection = child.id },
+                                   move: { offset in move(index, by: offset) },
+                                   remove: { remove(child) })
+                if child.type == "card" {
+                    row // cards stay in their deck; the arrows reorder them
+                } else {
+                    // Drag an item out: onto the bar, another card or container, or the library to remove it.
+                    row.onDrag {
+                        session.dragging = .move(id: child.id)
+                        container.document?.holdsSaves = true
+                        return DragPayload.move(id: child.id).provider
                     }
                 }
-            } label: {
-                Label("Add Item", systemImage: "plus")
+                Divider().opacity(0.5)
             }
-            .fixedSize()
-            .padding(.vertical, 8)
+            if container.type == "cards" {
+                Button(action: addCard) { Label("Add Card", systemImage: "plus") }
+                    .fixedSize()
+                    .padding(.vertical, 8)
+            } else {
+                Menu {
+                    ForEach(ItemCatalog.categories, id: \.self) { category in
+                        Menu(category) {
+                            ForEach(ItemCatalog.all.filter { $0.category == category && !$0.isContainer }, id: \.type) { info in
+                                Button(action: { add(info.type) }) { Label(info.name, systemImage: info.symbol) }
+                            }
+                        }
+                    }
+                } label: {
+                    Label("Add Item", systemImage: "plus")
+                }
+                .fixedSize()
+                .padding(.vertical, 8)
+            }
         }
+        // Full width even when all it holds is a short line.
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .overlay(RoundedRectangle(cornerRadius: EditorStyle.boxRadius)
+            .stroke(Color.accentColor, lineWidth: 2)
+            .padding(-6)
+            .opacity(targeted.wrappedValue == container.id ? 1 : 0))
+        .onDrop(of: [.plainText], delegate: CardDropDelegate(card: container, document: container.document, session: session,
+                                                              targeted: targeted.projectedValue))
     }
 
     private var emptyMessage: String {
         switch container.type {
-        case "popover": return "Empty. Add what it should expand into, such as a Volume Slider."
-        case "cluster": return "Empty. Add the items to show together, such as Previous, Play / Pause and Next."
-        default: return "Empty. Add the items it should open."
+        case "popover": return "Empty"
+        case "cluster": return "Empty"
+        case "cards": return "No cards yet. Drop items on it on the bar to make the first card, or add a card here."
+        case "card": return "Empty. Skipped on the bar until it has items."
+        default: return "Empty"
         }
     }
 
@@ -1238,6 +1320,20 @@ struct ContainerItemsEditor: View {
 
     private func remove(_ child: EditorItem) {
         container.document?.remove(child)
+    }
+
+    /// The deck this list belongs to: the cards slot itself, or the deck a card is in.
+    private var deck: EditorItem? {
+        if container.type == "cards" { return container }
+        if container.type == "card" { return container.document?.parent(of: container) }
+        return nil
+    }
+
+    private func addCard() {
+        guard let document = container.document else { return }
+        let card = EditorItem(fields: ["type": .string("card"), "items": .array([])], document: document)
+        document.add(card, to: container)
+        session.selection = card.id
     }
 
     private func add(_ type: String) {
@@ -1255,8 +1351,6 @@ private struct OpenedBarPreview: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(caption)
-                .foregroundColor(.secondary)
             openedBar
         }
         .padding(.vertical, 8)
@@ -1264,14 +1358,6 @@ private struct OpenedBarPreview: View {
         // Rebuilt after edits (including to its items), once they settle.
         .onReceive(documentChanges) { _ in model.build(container) }
         .onDisappear { model.stop() }
-    }
-
-    private var caption: String {
-        switch container.type {
-        case "popover": return "What it expands into"
-        case "cluster": return "How it looks on the bar"
-        default: return "What it opens"
-        }
     }
 
     private var openedBar: some View {
@@ -1288,12 +1374,200 @@ private struct OpenedBarPreview: View {
             }
             .padding(5)
             .background(RoundedRectangle(cornerRadius: EditorStyle.barRadius).fill(Color.black))
-            .help(container.type == "cluster" ? "The group where it sits on the bar, scaled to fit"
-                                               : "The bar it opens, scaled to fit")
     }
 
     private var documentChanges: AnyPublisher<Void, Never> {
         guard let document = container.document else { return Empty().eraseToAnyPublisher() }
+        return document.objectWillChange
+            .debounce(for: .milliseconds(400), scheduler: RunLoop.main)
+            .map { _ in () }
+            .eraseToAnyPublisher()
+    }
+}
+
+/// Ready-made fillings for an empty group or deck, each drawn as its items'
+/// icons (a deck's cards as a small fanned stack, front card first), filled in
+/// with a click.
+private struct StarterPicker: View {
+    let container: EditorItem
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Start from").foregroundColor(.secondary)
+            HStack(alignment: .top, spacing: 10) {
+                ForEach(ItemCatalog.starters(for: container.type), id: \.name) { starter in
+                    Button(action: { withAnimation { container.fill(with: starter) } }) {
+                        tile(starter)
+                    }
+                    .buttonStyle(.plain)
+                    .help(help(starter))
+                }
+            }
+        }
+        .padding(.vertical, 8)
+    }
+
+    private func tile(_ starter: ItemCatalog.Starter) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 3) {
+                ForEach(Array(starter.cards.enumerated()), id: \.offset) { index, types in
+                    HStack(spacing: 7) {
+                        ForEach(Array(types.enumerated()), id: \.offset) { _, type in
+                            Image(systemName: ItemCatalog.info(for: type).symbol)
+                                .font(.system(size: 11))
+                                .frame(width: 15)
+                        }
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 7)
+                    .frame(height: 22)
+                    .background(RoundedRectangle(cornerRadius: 5).fill(Color(white: index == 0 ? 0.24 : 0.17)))
+                    .opacity(index == 0 ? 1 : 0.65)
+                    // The cards behind the front one step in, like a deck seen from above.
+                    .padding(.leading, CGFloat(index) * 8)
+                }
+            }
+            Text(starter.name).font(.callout)
+        }
+        .padding(10)
+        .frame(minWidth: 118, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: EditorStyle.boxRadius).fill(Color(white: 0.12)))
+        .overlay(RoundedRectangle(cornerRadius: EditorStyle.boxRadius).stroke(Color.white.opacity(0.08)))
+        .contentShape(Rectangle())
+    }
+
+    private func help(_ starter: ItemCatalog.Starter) -> String {
+        let names = starter.cards.map { $0.map { ItemCatalog.info(for: $0).name }.joined(separator: ", ") }
+        return container.type == "cards"
+            ? names.enumerated().map { "Card \($0.offset + 1): \($0.element)" }.joined(separator: "\n")
+            : names.first ?? ""
+    }
+}
+
+/// A drop in the inspector, on a card's picture or a container's list: a library
+/// item, or an item moved off the bar, goes into that card or container (into a
+/// deck's front card, made if it has none).
+private struct CardDropDelegate: DropDelegate {
+    let card: EditorItem
+    let document: PresetDocument?
+    let session: EditorSession
+    @Binding var targeted: UUID?
+
+    /// The item being moved in, from the bar or another container, if it can go
+    /// here (not a container, and not already here).
+    private var movingItem: EditorItem? {
+        guard case let .move(id)? = session.dragging, let document = document,
+              let item = document.find(id), !item.isContainer, !(card.children ?? []).contains(where: { $0 === item }) else { return nil }
+        return item
+    }
+
+    private var accepts: Bool {
+        switch session.dragging {
+        case let .new(type)?: return !ItemCatalog.isContainer(type)
+        case .move?: return movingItem != nil
+        case nil: return false
+        }
+    }
+
+    func validateDrop(info _: DropInfo) -> Bool { accepts }
+    func dropEntered(info _: DropInfo) { if accepts { targeted = card.id } }
+    func dropExited(info _: DropInfo) { if targeted == card.id { targeted = nil } }
+    func dropUpdated(info _: DropInfo) -> DropProposal? { DropProposal(operation: accepts ? .move : .forbidden) }
+
+    func performDrop(info _: DropInfo) -> Bool {
+        targeted = nil
+        guard let document = document else { return false }
+        let card = document.dropTarget(for: self.card)
+        switch session.dragging {
+        case let .new(type)?:
+            let item = ItemCatalog.newItem(type, align: "center", document: document)
+            withAnimation { document.add(item, to: card) }
+        case .move?:
+            guard let item = movingItem else { return false }
+            withAnimation {
+                document.remove(item)
+                item.fields["align"] = nil // items in a card don't have a position of their own
+                document.add(item, to: card)
+            }
+        case nil:
+            return false
+        }
+        SettingsWindowController.shared.endLibraryPreview()
+        session.endDrag(document)
+        return true
+    }
+}
+
+/// A deck's cards, each pictured as it shows on the bar, front card first. Tap
+/// one to edit its items; the card being edited is outlined.
+private struct DeckPreview: View {
+    @ObservedObject var deck: EditorItem
+    let highlighted: EditorItem?
+    let session: EditorSession
+    @StateObject private var model = DeckPreviewModel()
+    /// The card a drag is over, outlined.
+    private let targeted = State<UUID?>(initialValue: nil)
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
+                // On a card, just that card, so its items below read as its own.
+                ForEach(Array((deck.children ?? []).enumerated()).filter { highlighted == nil || $0.element === highlighted },
+                        id: \.element.id) { index, card in
+                    Button(action: { session.selection = card.id }) {
+                        HStack(spacing: 10) {
+                            if highlighted == nil {
+                                Text("\(index + 1)")
+                                    .font(.system(.callout, design: .rounded).weight(.semibold))
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 16)
+                            }
+                            picture(of: card)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(card === highlighted ? "The card you're editing" : "Edit Card \(index + 1)")
+                    // Drop a library item, or one dragged off the bar, onto a card to add it there:
+                    // the bar shows only the front card, so this is how the others get filled.
+                    .onDrop(of: [.plainText], delegate: CardDropDelegate(card: card, document: deck.document, session: session,
+                                                                          targeted: targeted.projectedValue))
+                }
+            }
+        }
+        .padding(.vertical, 8)
+        .onAppear { model.build(deck) }
+        // Rebuilt after edits (including to the cards' items), once they settle.
+        .onReceive(documentChanges) { _ in model.build(deck) }
+        .onDisappear { model.stop() }
+    }
+
+    private func picture(of card: EditorItem) -> some View {
+        let selected = card === highlighted || targeted.wrappedValue == card.id
+        return HStack {
+            if let image = model.images[card.id] {
+                Image(nsImage: image)
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(height: ItemStyle.barHeight * 1.2)
+            } else if (card.children ?? []).isEmpty {
+                Text("Empty card").foregroundColor(.secondary).frame(height: ItemStyle.barHeight * 1.2)
+                    .padding(.leading, 6)
+            } else {
+                // Holds the card's place while its picture is taken.
+                Color.clear.frame(height: ItemStyle.barHeight * 1.2)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(5)
+        .background(RoundedRectangle(cornerRadius: EditorStyle.barRadius).fill(Color.black))
+        .overlay(RoundedRectangle(cornerRadius: EditorStyle.barRadius)
+            .stroke(selected ? Color.accentColor : Color.white.opacity(0.06), lineWidth: selected ? 2 : 1))
+    }
+
+    private var documentChanges: AnyPublisher<Void, Never> {
+        guard let document = deck.document else { return Empty().eraseToAnyPublisher() }
         return document.objectWillChange
             .debounce(for: .milliseconds(400), scheduler: RunLoop.main)
             .map { _ in () }
@@ -1343,7 +1617,7 @@ struct HoldRepeatEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ToggleRow(label: "Repeat while held", help: "Holding up buzzes stronger as it goes, holding down lighter",
+            ToggleRow(label: "Repeat while held", help: "Haptics strengthen going up, soften going down",
                       defaultValue: true,
                       value: Binding(get: { item[bool: "holdRepeat"] },
                                      set: { item[bool: "holdRepeat"] = $0 == false ? false : nil }))
@@ -1374,7 +1648,7 @@ struct HapticsEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            FieldRow(label: "Buzz on", help: when == "both" ? "A buzz on press, a soft tick on release" : nil) {
+            FieldRow(label: "Buzz on", help: when == "both" ? "Softer on release" : nil) {
                 Picker("", selection: Binding(get: { when }, set: { item[string: "haptic"] = $0 == "both" ? nil : $0 })) {
                     Text("Press and release").tag("both")
                     Text("Press").tag("press")
@@ -1402,11 +1676,11 @@ struct HapticsEditor: View {
                     }
                     .pickerStyle(.segmented).labelsHidden().fixedSize()
                 }
-                FieldRow(label: "Try it", help: "Plays on the trackpad") {
+                FieldRow(label: "Try it", help: "On the trackpad") {
                     Button(action: test) { Label("Press and release", systemImage: "hand.tap") }
                 }
                 if hasOnOffState {
-                    ToggleRow(label: "Toggle feel", help: "A tap's release buzzes by whether it turned the item on or off",
+                    ToggleRow(label: "Toggle feel", help: "Different release for on and off",
                               defaultValue: true,
                               value: Binding(get: { item[bool: "hapticToggle"] },
                                              set: { item[bool: "hapticToggle"] = $0 == false ? false : nil }))
@@ -1421,7 +1695,7 @@ struct HapticsEditor: View {
             .disabled(when == "off")
             .opacity(when == "off" ? 0.45 : 1)
             if !AppSettings.hapticFeedbackState {
-                Text("Haptic feedback is off for all items in Stripe's menu-bar menu.")
+                Text("Haptic feedback is turned off in the menu bar menu.")
                     .font(.caption).foregroundColor(.secondary)
                     .padding(.vertical, 8)
             }
@@ -1488,7 +1762,7 @@ struct SliderHapticsEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ToggleRow(label: "Detents", help: "A tick as the slider passes each mark, firmer at either end",
+            ToggleRow(label: "Detents", help: "Tick at each mark, firmer at the ends",
                       defaultValue: true,
                       value: Binding(get: { on }, set: { item[string: "haptic"] = $0 == false ? "off" : nil }))
             Group {
@@ -1510,7 +1784,7 @@ struct SliderHapticsEditor: View {
                     }
                     .pickerStyle(.segmented).labelsHidden().fixedSize()
                 }
-                FieldRow(label: "Try it", help: "A drag from 0 to 50%, on the trackpad") {
+                FieldRow(label: "Try it", help: "0 to 50%, on the trackpad") {
                     Button(action: test) { Label("Drag", systemImage: "slider.horizontal.3") }
                 }
             }

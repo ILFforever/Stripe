@@ -91,16 +91,28 @@ object is a command:
 | `battery` | Open the battery panel (`battery left`: back chevron on the left) |
 | `add TYPE` | Add an item to the end of the center, like a library double-click (`add saved:<id>` for My Items) |
 | `tab NAME` | Show an inspector tab: `item`, `style`, `behavior` or `advanced` |
-| `cards next`, `cards prev` | Slide the first cards slot to its next or previous card, as a swipe would |
+| `cards next`, `cards prev` | Move every cards slot to its next or previous card, as a swipe would |
+| `cards swipe DX DY [S] [X]` | A finger moving DX across (points) over S seconds (0.2), starting X points into each deck (its middle), through the decks' real touch handling: the swipe threshold, its speed, sliders keeping their own touches. DY is ignored by decks: the Touch Bar reports no vertical movement (every touch has the same height) |
+| `cards drag N`, `cards release` | Hold every cards slot mid-drag at N points (negative pulls toward the next card), then let go |
+| `cards state` | Log each cards slot's current card and where every card sits |
 
 `STRIPE_SUPPORT_DIR=/some/folder` (with `STRIPE_DEBUG=1`) makes a run read and write its preset and
 history there instead of in Application Support, so testing Settings can't touch your own preset.
 
-A one-line sender:
+`build-support/stripe-debug` sends any of these from a shell (in about a tenth of a
+second), screenshots the bar, and reads the debug log back, so scripts and agents can
+drive the bar and check what happened:
 
 ```sh
-swift -e 'import Foundation; DistributedNotificationCenter.default().postNotificationName(.init("com.ilfforever.stripe.debug"), object: "popover", deliverImmediately: true)'
+build-support/stripe-debug preset ~/test.json
+build-support/stripe-debug cards swipe -120 0     # swipe every deck left
+build-support/stripe-debug cards state            # log where each deck is
+build-support/stripe-debug log 3                  # debug lines from the last 3 seconds
+build-support/stripe-debug shot bar.png           # screenshot the Touch Bar
 ```
+
+Debug output goes to the system log under the `com.ilfforever.stripe` subsystem (and
+to stderr), so `log` works however Stripe was launched.
 
 ## Conventions
 
@@ -123,8 +135,8 @@ Things that cost time to find out:
   15.4 it only answers Apple-signed processes (see NowPlaying.swift). Don't go
   back to asking apps and browser tabs.
 - **Frame changes through `animator()` don't animate on the Touch Bar.** The bar shows
-  the end state at once. Animate a layer (e.g. an additive `position.x` animation, as
-  the cards' slide does) and set the final frame directly.
+  the end state at once. Animate a layer (e.g. the cards' `transform` animations) and
+  set the final value directly.
 - **Animate with Core Animation, not timers.** The battery's charging sweep is a
   layer animation; redrawing an NSImage 20 times a second was 20% CPU.
 - **The Touch Bar ignores `contentTintColor`.** Tint an icon by drawing a copy

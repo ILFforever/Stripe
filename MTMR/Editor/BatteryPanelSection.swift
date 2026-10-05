@@ -19,9 +19,7 @@ struct BatteryPanelSection: View {
         VStack(alignment: .leading, spacing: 0) {
             previewImage
                 .padding(.top, 10)
-            Text("Press and hold the battery item to open the overview across the whole bar.")
-                .font(.caption).foregroundColor(.secondary)
-                .padding(.vertical, 8)
+                .padding(.bottom, 8)
 
             FieldRow(label: "Press and hold") {
                 Picker("", selection: Binding(get: { holdAction },
@@ -34,7 +32,7 @@ struct BatteryPanelSection: View {
             }
 
             Group {
-                FieldRow(label: "Back button", help: "Where the button that closes the overview sits") {
+                FieldRow(label: "Back button") {
                     Picker("", selection: Binding(get: { item[string: "panelCloseSide"] ?? "" },
                                                   set: { item[string: "panelCloseSide"] = $0 })) {
                         Text("Battery's side").tag("")
@@ -43,7 +41,7 @@ struct BatteryPanelSection: View {
                     }
                     .pickerStyle(.segmented).labelsHidden().fixedSize()
                 }
-                FieldRow(label: "Tiles", help: "Top apps takes whatever room is left") {
+                FieldRow(label: "Tiles", help: "Top apps fills the remaining space") {
                     HStack(spacing: 12) {
                         ForEach(BatteryPanelSection.tiles, id: \.0) { tile, name in
                             Toggle(name, isOn: tileBinding(tile)).toggleStyle(.checkbox)

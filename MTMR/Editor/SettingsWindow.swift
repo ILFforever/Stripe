@@ -5,6 +5,7 @@
 //  The editor window's controller.
 //
 
+import Combine
 import SwiftUI
 
 /// Owns the editor window. Closing it just hides it; the app keeps running. Stripe is
@@ -19,6 +20,39 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     let document = PresetDocument(path: standardConfigPath)
     let session = EditorSession()
     private lazy var snapshots = ItemSnapshotModel(document: document, session: session)
+    private var selectionWatch: AnyCancellable?
+
+    /// The item on a deck's front card under the last press on the canvas, with its
+    /// view on the bar: what a drag starting there picks up, rather than the whole deck.
+    func deckItem(underPressIn deck: EditorItem) -> (item: EditorItem, view: NSView)? {
+        let bar = TouchBarController.shared
+        guard deck.type == "cards", let press = session.pressPoint, let chip = session.chipFrames[deck.id], chip.contains(press),
+              bar.currentPresetPath == document.path, bar.orderedIdentifiers.count == document.items.count,
+              let position = document.items.firstIndex(where: { $0 === deck }),
+              let cards = bar.items[bar.orderedIdentifiers[position]] as? CardsBarItem,
+              let hit = cards.item(atFraction: (press.x - chip.minX) / max(chip.width, 1)),
+              let card = deck.children?[safe: hit.card], let item = card.children?[safe: hit.item] else { return nil }
+        return (item, hit.view)
+    }
+
+    /// Ends the library's drag preview, for drops landing outside the bar canvas (a card in the inspector).
+    func endLibraryPreview() { snapshots.endPreview() }
+
+    /// Selecting a card, or an item on one, turns its deck on the bar to that card,
+    /// so the canvas (a picture of the bar) shows the card being edited.
+    private func showCard(holding id: UUID?) {
+        guard let item = document.find(id) else { return }
+        let chain = document.ancestors(of: item) + [item]
+        guard let cardLevel = chain.firstIndex(where: { $0.type == "card" }), cardLevel == 1 else { return }
+        let deck = chain[0], card = chain[1]
+        let bar = TouchBarController.shared
+        guard bar.currentPresetPath == document.path, bar.orderedIdentifiers.count == document.items.count,
+              let position = document.items.firstIndex(where: { $0 === deck }),
+              let cards = bar.items[bar.orderedIdentifiers[position]] as? CardsBarItem,
+              let index = deck.children?.firstIndex(where: { $0 === card }) else { return }
+        cards.show(card: index)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.snapshots.refresh() }
+    }
 
     func show() {
         if window == nil {
@@ -26,6 +60,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             document.onSaved = { [weak self] in
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { self?.snapshots.refresh() }
             }
+            selectionWatch = session.$selection.removeDuplicates().sink { [weak self] id in self?.showCard(holding: id) }
             let view = SettingsView(document: document, session: session, snapshots: snapshots)
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700),
                                   styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -51,6 +86,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
                 // would otherwise still claim the same spots.
                 self.session.chipFrames = self.session.chipFrames.filter { self.document.find($0.key) != nil }
                 self.session.zoneFrames = self.session.zoneFrames.filter { self.document.find($0.key) != nil }
+                self.session.pressPoint = point
                 if let hit = self.session.chipFrames.first(where: { $0.value.contains(point) })?.key {
                     self.session.set(\.selection, hit)
                 } else if self.session.barFrame.contains(point) {

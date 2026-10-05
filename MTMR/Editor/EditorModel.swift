@@ -20,10 +20,27 @@ final class EditorItem: ObservableObject, Identifiable {
 
     init(fields: [String: JSONValue], document: PresetDocument?) {
         var fields = fields
-        let childValues = fields.removeValue(forKey: "items")?.array
+        let childValues = EditorItem.takeChildren(from: &fields)
         self.fields = fields
         self.document = document
-        children = childValues?.compactMap { $0.object }.map { EditorItem(fields: $0, document: document) }
+        children = childValues?.map { EditorItem(fields: $0, document: document) }
+    }
+
+    /// Takes a container's children out of its JSON: its "items", or for a cards
+    /// slot each of its "cards" as a "card" whose children are that card's items.
+    private static func takeChildren(from fields: inout [String: JSONValue]) -> [[String: JSONValue]]? {
+        if fields["type"]?.string == "cards" {
+            fields.removeValue(forKey: "items")
+            let cards = fields.removeValue(forKey: "cards")?.array ?? []
+            // A card is a list of items, or an object with its items and settings of its own.
+            return cards.map { card in
+                var fields = card.object ?? [:]
+                fields["items"] = .array(card.array ?? fields["items"]?.array ?? [])
+                fields["type"] = .string("card")
+                return fields
+            }
+        }
+        return fields.removeValue(forKey: "items")?.array?.compactMap { $0.object }
     }
 
     var type: String { fields["type"]?.string ?? "unknown" }
@@ -32,7 +49,7 @@ final class EditorItem: ObservableObject, Identifiable {
     /// A group, folder or popover with nothing in it: hidden on the real bar, and
     /// a place to drop items in the editor.
     var isEmptyContainer: Bool {
-        ["cluster", "group", "popover"].contains(type) && (children?.isEmpty ?? true)
+        ["cluster", "group", "popover", "cards"].contains(type) && (children?.isEmpty ?? true)
     }
 
     /// Drawn Stripe's way (see StripeKeys) rather than MTMR's.
@@ -68,6 +85,22 @@ final class EditorItem: ObservableObject, Identifiable {
     /// What the sidebar shows: the title if there is one; for scripts, what they
     /// run (e.g. "status.sh ram"); otherwise the type's name.
     var displayName: String {
+        // A card in a deck is named by where it sits: Card 1 is the front card.
+        if type == "card" {
+            if let title = fields["title"]?.string, !title.trimmingCharacters(in: .whitespaces).isEmpty { return title }
+            let position = document?.parent(of: self)?.children?.firstIndex { $0 === self }
+            return position.map { "Card \($0 + 1)" } ?? "Card"
+        }
+        // A deck by its cards (each one's name, or else its first item), so decks can be told apart.
+        if type == "cards", fields["title"]?.string?.isEmpty ?? true {
+            let fronts = (children ?? []).compactMap { card -> String? in
+                if let title = card.fields["title"]?.string, !title.isEmpty { return title }
+                return card.children?.first?.displayName
+            }
+            guard !fronts.isEmpty else { return info.name }
+            let summary = "Cards: " + fronts.joined(separator: ", ")
+            return summary.count > 40 ? String(summary.prefix(39)) + "…" : summary
+        }
         if let title = fields["title"]?.string, !title.trimmingCharacters(in: .whitespaces).isEmpty {
             return title
         }
@@ -98,9 +131,24 @@ final class EditorItem: ObservableObject, Identifiable {
     var json: JSONValue {
         var result = fields
         if let children = children {
-            result["items"] = .array(children.map { $0.json })
+            if type == "cards" {
+                result["cards"] = .array(children.map { $0.cardJSON })
+            } else {
+                result["items"] = .array(children.map { $0.json })
+            }
         }
         return .object(result)
+    }
+
+    /// A card as its deck saves it: just its items, or with its own settings an
+    /// object holding them (and its items).
+    var cardJSON: JSONValue {
+        let items = JSONValue.array((children ?? []).map { $0.json })
+        var own = fields
+        own.removeValue(forKey: "type")
+        guard !own.isEmpty else { return items }
+        own["items"] = items
+        return .object(own)
     }
 
     // Typed accessors for bindings. Setting nil/"" removes the key, so the
@@ -137,10 +185,30 @@ final class EditorItem: ObservableObject, Identifiable {
 
     func replaceAll(with json: [String: JSONValue]) {
         var json = json
-        let childValues = json.removeValue(forKey: "items")?.array
+        let childValues = EditorItem.takeChildren(from: &json)
         fields = json
         if childValues != nil || children != nil {
-            children = childValues?.compactMap { $0.object }.map { EditorItem(fields: $0, document: document) } ?? []
+            children = childValues?.map { EditorItem(fields: $0, document: document) } ?? []
+        }
+        changed()
+    }
+
+    /// Fills an empty group or deck with a starter, in one step (one undo).
+    func fill(with starter: ItemCatalog.Starter) {
+        guard let document = document else { return }
+        func items(_ types: [String]) -> [EditorItem] {
+            types.map { ItemCatalog.newItem($0, align: "center", document: document) }
+        }
+        if type == "cards" {
+            children = starter.cards.map { types in
+                let card = EditorItem(fields: ["type": .string("card"), "items": .array([])], document: document)
+                card.children = items(types)
+                return card
+            }
+        } else {
+            children = items(starter.cards.first ?? [])
+            // Like the library's ready-made groups: the keys split by dividers.
+            if fields["dividers"] == nil { fields["dividers"] = .bool(true) }
         }
         changed()
     }
@@ -298,6 +366,16 @@ final class PresetDocument: ObservableObject {
             return nil
         }
         return search(items)
+    }
+
+    /// Where an item dropped on a container goes: the container itself, or for a
+    /// deck its front card (the one the bar shows), made if the deck has none.
+    func dropTarget(for container: EditorItem) -> EditorItem {
+        guard container.type == "cards" else { return container }
+        if let front = container.children?.first { return front }
+        let card = EditorItem(fields: ["type": .string("card"), "items": .array([])], document: self)
+        add(card, to: container)
+        return card
     }
 
     /// The folder, group or popover an item is inside, if any.
@@ -458,12 +536,18 @@ enum FieldKind {
     case number(placeholder: String)
     case toggle(default: Bool)
     case choice([String])
+    /// A few named choices side by side; `fallback` is the one in effect when unset.
+    case segments([(value: String, label: String)], fallback: String)
 }
 
 struct FieldSpec: Identifiable {
     let path: String
     let label: String
     let kind: FieldKind
+    /// A line under the label saying what it does, in plain words.
+    var help: String? = nil
+    /// The inspector box it goes in (the item's name when unset).
+    var section: String? = nil
     var id: String { path }
 }
 
@@ -477,7 +561,7 @@ struct ItemTypeInfo {
     /// A ready-made item the library adds whole (e.g. brightness down and up in
     /// a group); its "type" is the item's real type.
     var template: [String: JSONValue]? = nil
-    var isContainer: Bool { ["group", "popover", "cluster"].contains(template?["type"]?.string ?? type) }
+    var isContainer: Bool { ["group", "popover", "cluster", "cards", "card"].contains(template?["type"]?.string ?? type) }
     /// Drawn without a key unless the preset asks for one ("bordered": true).
     var borderlessByDefault: Bool {
         ["timeButton", "music", "dnd", "nightShift", "darkMode", "appleScriptTitledButton"].contains(type)
@@ -489,9 +573,9 @@ struct ItemTypeInfo {
     var isVisibleOnBar: Bool { type != "swipe" }
     /// Buttons (and popovers, which are buttons) take the full set of styling options.
     /// Buttons (popovers and folders are buttons too). Dock and Up Next are scrolling strips.
-    var supportsButtonStyling: Bool { !["cluster", "volume", "brightness", "swipe", "dock", "upnext"].contains(type) }
+    var supportsButtonStyling: Bool { !["cluster", "cards", "card", "volume", "brightness", "swipe", "dock", "upnext"].contains(type) }
     /// Clusters take a background and shape for the key their items share.
-    var supportsBackground: Bool { supportsButtonStyling || type == "cluster" }
+    var supportsBackground: Bool { supportsButtonStyling || ["cluster", "cards", "card"].contains(type) }
     var supportsIcon: Bool { supportsButtonStyling }
     var supportsActions: Bool { !isContainer && !["volume", "brightness", "swipe", "dock", "upnext"].contains(type) }
     /// The built-in designs the Style tab offers for this type, and the preset
@@ -499,26 +583,26 @@ struct ItemTypeInfo {
     var designs: (key: String, fallback: String, options: [(id: String, name: String, help: String)])? {
         if type == "performance" {
             return ("design", PerformanceBarItem.Design.chip.rawValue, [
-                ("chip", "Chip", "A chip icon, and each figure in its graph color"),
-                ("minimal", "Minimal", "Small CPU and GPU labels beside bold figures"),
-                ("graph", "Graph", "A thin meter beside each figure"),
+                ("chip", "Chip", "Chip icon, figures in graph colors"),
+                ("minimal", "Minimal", "Small labels, bold figures"),
+                ("graph", "Graph", "A meter beside each figure"),
             ])
         }
         if type == "music" {
             return ("design", MusicBarItem.Design.lines.rawValue, [
-                ("lines", "Two lines", "Artwork, and the title over the artist and how far in it is"),
-                ("progress", "Progress", "A thin bar under the title fills with the track"),
-                ("equalizer", "Equalizer", "Bars that move while something plays"),
-                ("player", "Mini player", "Previous, play/pause and next on the same key"),
-                ("ring", "Ring", "Round artwork in a ring that fills with the track"),
+                ("lines", "Two lines", "Artwork, title, artist and progress"),
+                ("progress", "Progress", "Progress bar under the title"),
+                ("equalizer", "Equalizer", "Animated bars while playing"),
+                ("player", "Mini player", "Previous, play/pause and next on one key"),
+                ("ring", "Ring", "Round artwork in a progress ring"),
             ])
         }
         if type == "pomodoro" {
             return ("design", PomodoroBarItem.Design.icon.rawValue, [
-                ("icon", "Icon", "A timer icon; while running, a ring and the time left"),
-                ("ready", "Ready time", "An empty ring and the focus length, so you see what a tap starts"),
-                ("stacked", "Stacked", "What a tap and a hold start, on two lines; while running, when it ends"),
-                ("pill", "Start pill", "A red Focus button; while running, it fills as the time passes"),
+                ("icon", "Icon", "Timer icon, with a ring and time left while running"),
+                ("ready", "Ready time", "Empty ring and focus length"),
+                ("stacked", "Stacked", "Focus and break lengths on two lines, end time while running"),
+                ("pill", "Start pill", "Red Focus button that fills while running"),
             ])
         }
         guard let classic = mtmrLook else { return nil }
@@ -538,19 +622,19 @@ struct ItemTypeInfo {
     /// What the MTMR look changes for this type, if it has one ("theme": "mtmr").
     var mtmrLook: String? {
         switch type {
-        case "battery": return "Text, like ⚡️64% with the time remaining raised beside it"
+        case "battery": return "Text, like ⚡️64%, with time remaining"
         case "play": return "A static play/pause icon"
         case "mute": return "A static mute icon"
-        case "volume", "brightness": return "A plain slider, without the panel and end icons"
+        case "volume", "brightness": return "Plain slider, no panel or end icons"
         case "escape": return "Regular-weight “esc”"
         case "delete": return "“del” as text"
         case "brightnessDown", "brightnessUp", "illuminationDown", "illuminationUp":
-            return "MTMR's own icon, on a key of its own"
+            return "MTMR's icon, on its own key"
         case "staticButton": return "A standard key with regular-weight text"
-        case "appleScriptTitledButton": return "A standard key with regular text; shows ⏳ until its first value"
+        case "appleScriptTitledButton": return "Standard key, regular text, ⏳ until first value"
         case "shellScriptTitledButton", "cpu", "currency", "weather", "yandexWeather",
              "inputsource", "music", "network":
-            return "Shows ⏳ until its first value, instead of fading in"
+            return "⏳ until first value, no fade-in"
         default: return nil
         }
     }
@@ -689,12 +773,21 @@ enum ItemCatalog {
                               FieldSpec(path: "autoClose", label: "Auto-close after (s)", kind: .number(placeholder: "never"))]),
         ItemTypeInfo(type: "cluster", name: "Group", symbol: "rectangle.split.3x1", category: "Containers",
                      defaults: ["itemWidth": .number(40)],
-                     fields: [FieldSpec(path: "dividers", label: "Dividers between items", kind: .toggle(default: false)),
-                              FieldSpec(path: "itemWidth", label: "Minimum item width", kind: .number(placeholder: "Automatic")),
-                              FieldSpec(path: "spacing", label: "Space between items", kind: .number(placeholder: "0")),
-                              FieldSpec(path: "padding", label: "Padding at the ends", kind: .number(placeholder: "Automatic"))]),
+                     fields: ItemCatalog.rowLayout(spacingPlaceholder: "0", paddingPlaceholder: "Automatic", section: "Layout")),
         ItemTypeInfo(type: "group", name: "Folder", symbol: "folder", category: "Containers",
                      defaults: ["symbol": .string("folder.fill")], fields: []),
+        // Starts empty, like the other containers: drop items on it to fill its first card.
+        ItemTypeInfo(type: "cards", name: "Cards", symbol: "rectangle.stack", category: "Containers",
+                     defaults: ["cornerRadius": .number(8), "cards": .array([])],
+                     fields: [FieldSpec(path: "direction", label: "Cards behind",
+                                        kind: .segments([("across", "Right"), ("up", "Below"), ("down", "Above")], fallback: "across"),
+                                        section: "Changing cards"),
+                              FieldSpec(path: "loop", label: "Wrap around", kind: .toggle(default: false), section: "Changing cards"),
+                              FieldSpec(path: "remember", label: "Reopen on the last card", kind: .toggle(default: true),
+                                        help: "Across app switches and restarts", section: "Changing cards"),
+                              FieldSpec(path: "rotate", label: "Turn to next card", kind: .number(placeholder: "Never"),
+                                        help: "After inactive for (seconds)", section: "Changing cards")]
+                         + ItemCatalog.rowLayout(spacingPlaceholder: "8", paddingPlaceholder: "8", section: "Each card's row")),
         simple("close", "Close Folder", "chevron.left", "Containers"),
 
         // Other
@@ -707,6 +800,17 @@ enum ItemCatalog {
                               FieldSpec(path: "sourceApple.inline", label: "AppleScript", kind: .multiline)]),
         simple("exitTouchbar", "Exit Stripe Bar", "xmark.circle", "Other"),
     ]
+
+    /// How a group, or a deck's cards, lay out their row of items.
+    private static func rowLayout(spacingPlaceholder: String, paddingPlaceholder: String, section: String) -> [FieldSpec] {
+        [FieldSpec(path: "dividers", label: "Lines between items", kind: .toggle(default: false), section: section),
+         FieldSpec(path: "itemWidth", label: "Minimum item width", kind: .number(placeholder: "Automatic"),
+                   help: "Points", section: section),
+         FieldSpec(path: "spacing", label: "Gap between items", kind: .number(placeholder: spacingPlaceholder), help: "Points",
+                   section: section),
+         FieldSpec(path: "padding", label: "Space at the ends", kind: .number(placeholder: paddingPlaceholder), help: "Points",
+                   section: section)]
+    }
 
     private static func simple(_ type: String, _ name: String, _ symbol: String, _ category: String,
                                defaults: [String: JSONValue] = [:]) -> ItemTypeInfo {
@@ -729,7 +833,38 @@ enum ItemCatalog {
                                 "items": .array(types.map { .object(["type": .string($0)]) })])
     }
 
+    /// A ready-made filling for an empty group or deck. Offered in its inspector
+    /// while it's empty; a new one never starts with it.
+    struct Starter {
+        let name: String
+        /// Item types: for a group a single list, for a deck one list per card.
+        let cards: [[String]]
+    }
+
+    /// Everyday setups built only from built-in items, so they work as soon as they're added.
+    static func starters(for type: String) -> [Starter] {
+        switch type {
+        case "cluster":
+            return [Starter(name: "Media", cards: [["previous", "play", "next"]]),
+                    Starter(name: "Brightness", cards: [["brightnessDown", "brightnessUp"]]),
+                    Starter(name: "Volume", cards: [["volumeDown", "mute", "volumeUp"]])]
+        case "cards":
+            return [Starter(name: "Media, then toggles", cards: [["previous", "play", "next"], ["dnd", "darkMode", "nightShift"]]),
+                    Starter(name: "System", cards: [["cpu", "gpu"], ["network"], ["battery"]]),
+                    Starter(name: "Display", cards: [["brightnessDown", "brightnessUp"], ["illuminationDown", "illuminationUp"],
+                                                     ["nightShift", "darkMode"]])]
+        default:
+            return []
+        }
+    }
+
+    /// One card in a deck. Not in the library: cards are added from their deck.
+    static let card = ItemTypeInfo(type: "card", name: "Card", symbol: "rectangle", category: "Containers", defaults: [:],
+                                   fields: [FieldSpec(path: "title", label: "Name", kind: .text(placeholder: "Card"),
+                                                      help: "Shown only in Settings")])
+
     static func info(for type: String) -> ItemTypeInfo {
+        if type == "card" { return card }
         return all.first { $0.type == type }
             ?? ItemTypeInfo(type: type, name: type, symbol: "questionmark.square", category: "Other", defaults: [:], fields: [])
     }
@@ -745,7 +880,7 @@ enum ItemCatalog {
         var fields = info.template ?? info.defaults
         fields["type"] = fields["type"] ?? .string(type)
         if align != "center" { fields["align"] = .string(align) }
-        if info.isContainer, fields["items"] == nil {
+        if info.isContainer, fields["items"] == nil, type != "cards" {
             fields["items"] = .array([])
         }
         return EditorItem(fields: fields, document: document)

@@ -19,13 +19,25 @@
 //
 
 import Cocoa
+import os
 
 enum DebugHooks {
+    private static let logger = Logger(subsystem: "com.ilfforever.stripe", category: "debug")
+
+    /// Debug output: to the system log (where `build-support/stripe-debug log`
+    /// reads it, however Stripe was launched) and to stderr.
+    static func log(_ message: String) {
+        logger.notice("\(message, privacy: .public)")
+        FileHandle.standardError.write((message + "\n").data(using: .utf8) ?? Data())
+    }
     static let notification = Notification.Name("com.ilfforever.stripe.debug")
 
+    /// Launched with STRIPE_DEBUG=1: debug commands, and extra logging (e.g. each touch on a deck).
+    static let isEnabled = ProcessInfo.processInfo.environment["STRIPE_DEBUG"] == "1"
+
     static func installIfRequested() {
-        guard ProcessInfo.processInfo.environment["STRIPE_DEBUG"] == "1" else { return }
-        NSLog("Stripe debug hooks enabled")
+        guard isEnabled else { return }
+        log("Stripe debug hooks enabled")
         DistributedNotificationCenter.default().addObserver(forName: notification, object: nil, queue: .main) { note in
             handle(command: note.object as? String ?? "")
         }
@@ -33,14 +45,36 @@ enum DebugHooks {
 
     private static func handle(command: String) {
         let items = TouchBarController.shared.items.values
-        NSLog("Stripe debug command: \(command)")
+        log("Stripe debug command: \(command)")
         switch command {
         case "popover":
             (items.first { $0 is PopoverBarItem } as? PopoverBarItem)?.expand()
         case "group":
             (items.first { $0 is GroupBarItem } as? GroupBarItem)?.open()
+        // Every cards slot on the bar moves together, so one screenshot covers several decks.
         case "cards next", "cards prev":
-            (items.first { $0 is CardsBarItem } as? CardsBarItem)?.advance(command == "cards next" ? 1 : -1)
+            for case let cards as CardsBarItem in items { cards.advance(command == "cards next" ? 1 : -1) }
+        case let command where command.hasPrefix("cards drag "):
+            // Hold the cards slots mid-drag, to screenshot the in-between look.
+            if let points = Double(command.dropFirst("cards drag ".count)) {
+                for case let cards as CardsBarItem in items { cards.drag(to: CGFloat(points)) }
+            }
+        case let command where command.hasPrefix("cards swipe "):
+            // "cards swipe DX DY [SECONDS] [X]": a finger moving DX across and DY up (points)
+            // over SECONDS (0.2 by default), starting X points into each deck (its middle by
+            // default), through the same touch handling as a real one.
+            let numbers = command.dropFirst("cards swipe ".count).split(separator: " ").compactMap { Double($0) }
+            if numbers.count >= 2 {
+                let duration = numbers.count > 2 ? numbers[2] : 0.2
+                let x = numbers.count > 3 ? CGFloat(numbers[3]) : nil
+                for case let cards as CardsBarItem in items {
+                    cards.swipe(by: CGVector(dx: numbers[0], dy: numbers[1]), duration: duration, from: x)
+                }
+            }
+        case "cards state":
+            for case let cards as CardsBarItem in items { cards.logState() }
+        case "cards release":
+            for case let cards as CardsBarItem in items { cards.release() }
         case "settings":
             SettingsWindowController.shared.show()
         case "settings close":
@@ -90,8 +124,10 @@ enum DebugHooks {
         case let tap where tap.hasPrefix("tap "):
             // "tap battery" taps the first item whose identifier contains "battery".
             let name = tap.dropFirst(4).lowercased()
-            let match = TouchBarController.shared.items
-                .first { $0.key.rawValue.lowercased().contains(name) }?.value as? CustomButtonTouchBarItem
+            // Items on the bar, then items on cards.
+            let all = Array(TouchBarController.shared.items.values)
+                + TouchBarController.shared.items.values.compactMap { $0 as? CardsBarItem }.flatMap { $0.cardItems }
+            let match = all.first { $0.identifier.rawValue.lowercased().contains(name) } as? CustomButtonTouchBarItem
             match?.callActions(for: .singleTap)
         case let gesture where gesture.hasPrefix("double ") || gesture.hasPrefix("hold "):
             // "double music" and "hold music" run the first matching item's double tap or long tap actions.
@@ -138,7 +174,7 @@ enum DebugHooks {
             }
             TouchBarController.shared.restoreMainBar()
         default:
-            NSLog("Stripe debug: unknown command \(command)")
+            log("Stripe debug: unknown command \(command)")
         }
     }
 }

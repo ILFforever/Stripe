@@ -72,21 +72,27 @@ class ClusterBarItem: NSCustomTouchBarItem, TearDownable {
     /// Glass has no fill; the shared view draws it, frosted like a key.
     static func sharedBackground(for definition: BarItemDefinition)
         -> (fill: NSColor?, glass: Bool, tint: NSColor?, radius: CGFloat) {
+        sharedBackground(parameters: definition.additionalParameters)
+    }
+
+    /// The same from a set of parameters, e.g. a deck's with one card's own look over them.
+    static func sharedBackground(parameters: [GeneralParameters.CodingKeys: GeneralParameter])
+        -> (fill: NSColor?, glass: Bool, tint: NSColor?, radius: CGFloat) {
         var fill: NSColor? = CustomButtonTouchBarItem.standardKeyColor
         var glass = CustomButtonTouchBarItem.glass
-        if case let .glass(own)? = definition.additionalParameters[.glass] { glass = own }
-        if case let .background(color)? = definition.additionalParameters[.background] {
+        if case let .glass(own)? = parameters[.glass] { glass = own }
+        if case let .background(color)? = parameters[.background] {
             fill = color
             glass = false
-        } else if case .bordered(false)? = definition.additionalParameters[.bordered] {
+        } else if case .bordered(false)? = parameters[.bordered] {
             fill = nil
             glass = false
         }
         if glass { fill = nil }
         var tint = CustomButtonTouchBarItem.glassTint
-        if case let .glassTint(own)? = definition.additionalParameters[.glassTint] { tint = own }
+        if case let .glassTint(own)? = parameters[.glassTint] { tint = own }
         var radius = standardCornerRadius
-        if case let .style(style)? = definition.additionalParameters[.style], let custom = style.cornerRadius {
+        if case let .style(style)? = parameters[.style], let custom = style.cornerRadius {
             radius = custom
         }
         return (fill, glass, tint, radius)
@@ -132,7 +138,8 @@ final class ClusterView: NSView {
         didSet { needsDisplay = true }
     }
 
-    private let glass: Bool
+    /// Settable so a card can take the group off its own background.
+    var glass: Bool { didSet { needsDisplay = true } }
     private let glassTint: NSColor?
     private let cornerRadius: CGFloat
 
