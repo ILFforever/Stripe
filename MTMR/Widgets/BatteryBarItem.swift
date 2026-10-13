@@ -372,9 +372,9 @@ class BatteryInfo: NSObject {
                     self.timeToFull = timeToFull
                 }
 
-                if let isCharged = psDesc[kIOPSIsChargedKey] as? Bool {
-                    self.isCharged = isCharged
-                }
+                // macOS only includes this key while the battery is full, so a missing key means
+                // "not charged". Reading it as optional kept a stale `true` from the last full charge.
+                self.isCharged = psDesc[kIOPSIsChargedKey] as? Bool ?? false
 
                 if let isCharging = psDesc[kIOPSIsChargingKey] as? Bool {
                     self.isCharging = isCharging
